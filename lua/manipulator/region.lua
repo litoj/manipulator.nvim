@@ -28,6 +28,17 @@ function Region:clone(override)
 	return setmetatable(vim.tbl_deep_extend('keep', override or {}, self), getmetatable(self))
 end
 
+---@return integer|false # comparison of inclusion of range
+---   - `false` if from different buffers
+---   - `>0` if {b} is a subset of {a}, `0` when equal, `<0` otherwise
+function Region:contains(new)
+	local b1, r1 = RANGE_UTILS.decompose(self, true)
+	local b2, r2 = RANGE_UTILS.decompose(new, true)
+	return b1 == b2 and RANGE_UTILS.rangeContains(r1, r2) or false
+end
+
+function Region:eq(new) return self:contains(new) == 0 end
+
 ---@generic S: manipulator.Region
 ---@generic O
 ---@param self `S`
@@ -130,39 +141,48 @@ function Region:mark(char)
 	vim.api.nvim_buf_set_mark(buf, char, range[1] + 1, range[2], {})
 end
 
---- Jump to the start (or end, if {_end}) of the region.
----@param end_? boolean
-function Region:jump(end_)
-	RANGE_UTILS.jump { buf = self.buf, range = end_ and self:end_() or self:start() }
+---@class manipulator.Region.jump.Opts
+---@field end_? boolean if the cursor should jump to the end of the selection (applied only when not in visual mode already) (default: true)
+---@field rangemod? false|fun(self:manipulator.Region):Range4 transform the range of the region before manipulation (default: trims whitespace)
+---@field insert? boolean should we enter insert mode (default: false)
+
+--- Jump to the start (or end, if `opts.end_`) of the region.
+---@param opts? manipulator.Region.jump.Opts
+function Region:jump(opts)
+	opts = opts or {}
+	local r = opts.rangemod == false and self:range0()
+		or (opts.rangemod or RANGE_UTILS.get_trimmed_range)(self)
+
+	RANGE_UTILS.jump(
+		{ buf = self.buf, range = not opts.end_ and { r[1], r[2] } or { r[3], r[4] } },
+		opts.end_,
+		opts.insert
+	)
 end
 
----@class manipulator.Region.select.Opts
+---@class manipulator.Region.select.Opts: manipulator.Region.jump.Opts
 ---@field allow_grow? boolean if true, add to current visual selection (default: false)
 ---@field linewise? boolean|'auto' 'auto' uses linewise mode if the range covers all line text (default: 'auto')
----@field return_to_insert? boolean if coming from insert mode should we return to it after ending the selection (like `<C-o>v`) (default: false)
+---@field insert? boolean if coming from insert mode should we return to it after ending the selection (like `<C-o>v`) (default: false)
 ---@field allow_select_mode? boolean if coming from insert mode should we enter select or visual mode. Cannot be combined with `return_to_insert` (default: false=visual mode only)
----@field end_? boolean if the cursor should jump to the end of the selection (applied only when not in visual mode already) (default: true)
----@field rangemod? false|fun(self:manipulator.Region,range:Range4):Range4 modify the range before selecting (default: trims whitespace)
 
 --- Select node in visual/select mode.
 ---@param opts? manipulator.Region.select.Opts
 function Region:select(opts)
 	opts = opts or {}
-	local buf, range = RANGE_UTILS.decompose(self, true)
-	if buf ~= vim.api.nvim_get_current_buf() then RANGE_UTILS.jump(self) end
-	if opts.rangemod == nil then opts.rangemod = RANGE_UTILS.get_trimmed_range end
-	if opts.rangemod then range = opts.rangemod(self, range) end
+	local r = opts.rangemod == false and self:range0()
+		or (opts.rangemod or RANGE_UTILS.get_trimmed_range)(self)
+	local buf = self.buf
+	if buf == 0 then
+		buf = vim.api.current_buf()
+	else
+		vim.api.nvim_win_set_buf(0, buf)
+	end
 	local t_mode = opts.linewise == nil and 'auto' or opts.linewise
 	if
 		t_mode == 'auto'
-		and not vim.api
-			.nvim_buf_get_lines(buf, range[1], range[1] + 1, true)[1]
-			:sub(1, range[2])
-			:match '%S'
-		and not vim.api
-			.nvim_buf_get_lines(buf, range[3], range[3] + 1, true)[1]
-			:sub(range[4] + 2)
-			:match '%S'
+		and not vim.api.nvim_buf_get_lines(buf, r[1], r[1] + 1, true)[1]:sub(1, r[2]):match '%S'
+		and not vim.api.nvim_buf_get_lines(buf, r[3], r[3] + 1, true)[1]:sub(r[4] + 2):match '%S'
 	then
 		t_mode = 'V'
 	else
@@ -171,27 +191,28 @@ function Region:select(opts)
 
 	local visual, leading = RANGE_UTILS.current_visual()
 	if visual and opts.allow_grow then
-		range[1] = math.min(range[1], visual[1])
-		range[2] = math.min(range[2], visual[2])
-		range[3] = math.max(range[3], visual[3])
-		range[4] = math.max(range[4], visual[4])
+		r[1] = math.min(r[1], visual[1])
+		r[2] = math.min(r[2], visual[2])
+		r[3] = math.max(r[3], visual[3])
+		r[4] = math.max(r[4], visual[4])
 	end
 
 	local c_mode = vim.fn.mode()
-	if c_mode == 'i' then
-		if not opts.allow_select_mode then vim.cmd.stopinsert() end -- updates in the next tick
-		range[4] = range[4] + 1 -- fix insert shortening moved cursor in this tick
-		if opts.return_to_insert then vim.cmd { cmd = 'normal', bang = true, args = { '\015' } } end
-		vim.cmd { cmd = 'normal', bang = true, args = { t_mode } }
-	elseif c_mode ~= t_mode then
-		vim.cmd { cmd = 'normal', bang = true, args = { '\027' } }
+	if c_mode ~= t_mode then
+		if c_mode == 'i' then
+			if not opts.allow_select_mode then vim.cmd.stopinsert() end -- updates in the next tick
+			r[4] = r[4] + 1 -- fix insert shortening moved cursor in this tick
+			if opts.insert then vim.cmd { cmd = 'normal', bang = true, args = { '\015' } } end
+		else
+			vim.cmd { cmd = 'normal', bang = true, args = { '\027' } }
+		end
 		vim.cmd { cmd = 'normal', bang = true, args = { t_mode } }
 	end
 
 	-- vim line is 1-indexed, col is 0-indexed
-	vim.api.nvim_win_set_cursor(0, { range[1] + 1, range[2] })
+	vim.api.nvim_win_set_cursor(0, { r[1] + 1, r[2] })
 	vim.cmd.normal 'o'
-	vim.api.nvim_win_set_cursor(0, { range[3] + 1, range[4] })
+	vim.api.nvim_win_set_cursor(0, { r[3] + 1, r[4] })
 	if leading or (not visual and opts.end_ == false) then vim.cmd.normal 'o' end
 end
 

@@ -160,6 +160,24 @@ do -- ### Current state helpers
 		return point
 	end
 
+	---@param point manipulator.RangeType 0-indexed point
+	---@param offset_insert? boolean if end in 's'/'i' mode should get extra +1 offset (default: true)
+	---@param start_insert? boolean if we should enter insert mode (default: false)
+	function M.jump(point, offset_insert, start_insert)
+		local buf, range = M.decompose(point)
+		local mode = vim.fn.mode()
+		if mode == 'i' or mode == 's' or start_insert then
+			M.fix_end(buf, range) -- shifts back by one if at EOL
+			if offset_insert ~= false then
+				range[2] = range[2] + 1 -- we want insert to be after the selection -> add 1 to all cases
+			end
+			if start_insert and mode ~= 'i' then vim.cmd.startinsert() end
+		end
+
+		vim.api.nvim_win_set_buf(0, buf)
+		vim.api.nvim_win_set_cursor(0, { range[1] + 1, range[2] })
+	end
+
 	---@param region manipulator.RangeType
 	---@return Range4 # 0-indexed range of the region trimmed to the
 	function M.get_trimmed_range(region)
@@ -209,23 +227,6 @@ do -- ### Current state helpers
 		end
 
 		return range
-	end
-
-	---@param point manipulator.RangeType 0-indexed point
-	---@param offset_insert? boolean if end in 's'/'i' mode should get extra +1 offset (default: true)
-	function M.jump(point, offset_insert)
-		local buf, range = M.decompose(point)
-		range = { range[1] + 1, range[2] }
-		local mode = vim.fn.mode()
-		if mode == 'i' or mode == 's' then
-			M.fix_end(buf, range) -- shifts back by one if at EOL
-			if offset_insert ~= false then
-				range[2] = range[2] + 1 -- we want insert to be after the selection -> add 1 to all cases
-			end
-		end
-
-		vim.api.nvim_win_set_buf(0, buf)
-		vim.api.nvim_win_set_cursor(0, range)
 	end
 
 	---@alias manipulator.VisualMode 'v'|'V'|'\022'|'s'|'S'|'\019'

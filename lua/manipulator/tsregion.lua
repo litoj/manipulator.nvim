@@ -39,7 +39,7 @@ M.default_config = {
 	langs = { ['*'] = true, 'luap', 'printf', 'regex' },
 	types = {
 		['*'] = true,
-		-- coding languages can appear in markdown blocks -> all pg langs directly in the defaults
+		-- pg langs can be in markdown blocks -> common pg langs directly in the defaults
 		'string_content',
 		'comment_content',
 
@@ -217,11 +217,11 @@ function TSRegion:parent(opts)
 end
 
 --- Get a child node.
----@param opts? manipulator.TSRegion.Opts|string
 ---@param idx? integer|Range4 child index, <0 for reverse indexing, or a range it should contain (default: 0)
+---@param opts? manipulator.TSRegion.Opts|string
 ---@return manipulator.TSRegion? node from the given direction
 ---@return boolean? changed_lang true if {node} is from a different language tree
-function TSRegion:child(opts, idx)
+function TSRegion:child(idx, opts)
 	opts = action_opts(self.config, opts, 'child')
 
 	local node, ltree = TS_UTILS.get_child(opts, self.node, self.ltree, idx)
@@ -235,7 +235,7 @@ function TSRegion:closer_edge_child(opts)
 	local pos = vim.api.nvim_win_get_cursor(0)
 	local pos_byte = vim.fn.line2byte(pos[1]) - 1 + pos[2]
 	local mid_byte = (select(3, self.node:start()) + select(3, self.node:end_())) / 2
-	return self:child(opts, pos_byte > mid_byte and -1 or 0)
+	return self:child(pos_byte > mid_byte and -1 or 0, opts)
 end
 
 --- Find the closest child to active position
@@ -243,7 +243,7 @@ end
 ---@return manipulator.TSRegion? node from the given direction
 ---@return boolean? changed_lang true if {node} is from a different language tree
 function TSRegion:closest_child(opts)
-	local node = self:child(opts, RANGE_UTILS.current_point(opts and opts.mouse).range)
+	local node = self:child(RANGE_UTILS.current_point(opts and opts.mouse).range, opts)
 	return node and node.node and node or self:closer_edge_child(opts)
 end
 
