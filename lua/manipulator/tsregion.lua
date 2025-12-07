@@ -7,12 +7,29 @@
 ---@class manipulator.TSRegion.MethodConfig: manipulator.TSRegion.Opts
 ---@field parent? manipulator.TSRegion.Opts
 ---@field child? manipulator.TSRegion.Opts
+---@field sibling? manipulator.TSRegion.SiblingOpts
 ---@field next? manipulator.TSRegion.SiblingOpts
 ---@field prev? manipulator.TSRegion.SiblingOpts
+---@field in_graph? manipulator.TSRegion.GraphOpts
+---@field next_in_graph? manipulator.TSRegion.GraphOpts
+---@field prev_in_graph? manipulator.TSRegion.GraphOpts
+
+local inheritable_keys = {
+	types = false,
+	langs = false,
+
+	parent = true,
+	child = true,
+	sibling = true,
+	next = 'sibling',
+	prev = 'sibling',
+	in_graph = true,
+	next_in_graph = 'in_graph',
+	prev_in_graph = 'in_graph',
+}
 
 ---@class manipulator.TSRegion.Config: manipulator.TSRegion.MethodConfig
 ---@field presets? {[string]:manipulator.TSRegion.MethodConfig}
----@field actions? manipulator.TSRegion.MethodConfig
 
 local Region = require 'manipulator.region'
 local UTILS = require 'manipulator.utils'
@@ -58,8 +75,8 @@ M.default_config = {
 	inherit = false,
 
 	sibling = { types = { inherit = true, comment = false } },
-	next_in_graph = { allow_child = true },
-	prev_in_graph = { allow_parent = true },
+	next_in_graph = { start_point = 'cursor', allow_child = true },
+	prev_in_graph = { start_point = 'cursor' },
 
 	prefer_ft_preset = true,
 
@@ -96,20 +113,6 @@ M.default_config = {
 			},
 		},
 	},
-}
-
-local inheritable_keys = {
-	types = false,
-	langs = false,
-
-	parent = true,
-	child = true,
-	next = 'sibling',
-	prev = 'sibling',
-	next_in_graph = 'in_graph',
-	prev_in_graph = 'in_graph',
-	in_graph = true,
-	sibling = true,
 }
 
 local function with_setup_enablers(opts)
@@ -464,21 +467,19 @@ function M.get_all(opts)
 	return Batch:new(nil, nodes, opts.nil_wrap and TSRegion.Nil)
 end
 
----@class manipulator.TSRegion.module.current.Opts: manipulator.TSRegion.Config,manipulator.Region.module.current.Opts
+---@class manipulator.TSRegion.module.current.Opts: manipulator.TSRegion.module.get.Opts,manipulator.Region.module.current.Opts
 ---@field v_partial? integer >0 allows node larger than visual selection, 0 falls back to cursor, <0 nil (default: 1)
----@field persistent? boolean should opts be saved as the default for the node (default: true)
+---@field range? nil
 
 ---@param opts? manipulator.TSRegion.module.current.Opts persistent by default
 ---@return manipulator.TSRegion?
-function TSRegion.current(opts)
+function M.current(opts)
 	opts = expand_config(M.config, opts)
 
 	local region, visual = Region.current(opts)
 	opts.mouse = nil
 	opts.visual = nil
-	---@cast opts manipulator.TSRegion.module.get.Opts|manipulator.TSRegion.module.current.Opts
 	opts.range = region:range0()
-	if visual then opts.range[4] = opts.range[4] + 1 end
 
 	local ret = M.get(opts) -- get the primary chosen node
 	if not ret or not ret.node then return ret end
@@ -488,11 +489,11 @@ function TSRegion.current(opts)
 	if v_partial <= 0 and visual and RANGE_UTILS.rangeContains(ret:range0(), region:range0()) > 0 then
 		if v_partial == 0 then -- fall back to node under cursor
 			---@diagnostic disable-next-line: cast-local-type
-			region = RANGE_UTILS.current_point(opts.mouse)
+			region = RANGE_UTILS.current_point(opts.mouse, opts.insert_fixer)
 			opts.range = region.range
 			opts.buf = region.buf
 			ret = M.get(opts)
-		else -- no fallback, return nil node
+		else -- no fallback allowed -> return nil node
 			ret = TSRegion:new(opts)
 		end
 	end

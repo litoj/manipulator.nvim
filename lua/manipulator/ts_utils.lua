@@ -165,7 +165,7 @@ end
 ---@field allow_child? boolean if children of the current node can be returned
 ---@field start_point? 'cursor'|Range2 0-indexed, from where to start looking for nodes
 ---@field compare_end? boolean should we look in direction by end of node or start
--- ---@field match string scheme query to match
+-- ---@field match string scheme query to match TODO
 
 local function start_point_to_byte(sp, fallback)
 	if sp == 'cursor' then sp = RANGE_UTILS.current_point().range end

@@ -232,7 +232,7 @@ function Region:paste(opts)
 		return
 	end
 
-	if opts.linewise then -- mode='over' doesn't make sensehere, so we ignore it
+	if opts.linewise then -- mode='over' doesn't make sense here, so we ignore it
 		if opts.mode == 'after' then range[1] = range[3] + 1 end
 		range[3] = range[1]
 		range[2] = 0
@@ -449,6 +449,7 @@ end
 ---@class manipulator.Region.module.current.Opts options for retrieving various kinds of user position
 ---@field mouse? boolean if the event is a mouse click
 ---@field visual? boolean|manipulator.VisualModeEnabler map of modes for which to return visual range, false to get a cursor/mouse only
+---@field insert_fixer? string luapat to match the char under cursor to determine if c-1 column should be used when in 'i'/'s' mode
 
 --- Get mouse click position or currently selected region and cursor position
 ---@param opts? manipulator.Region.module.current.Opts use {} for disabling visual mode
@@ -456,9 +457,9 @@ end
 ---@return boolean is_visual true if the range is from visual mode
 function M.current(opts)
 	opts = opts or {}
-	local range = opts.visual ~= false and RANGE_UTILS.current_visual(opts.visual)
-	if range then return Region:new { range = range }, true end
-	return Region:new(RANGE_UTILS.current_point(opts.mouse)), false
+	local range = opts.visual ~= false and RANGE_UTILS.current_visual(opts.visual, opts.insert_fixer)
+	return Region:new(range or RANGE_UTILS.current_point(opts.mouse, opts.insert_fixer)),
+		not not range
 end
 
 return M

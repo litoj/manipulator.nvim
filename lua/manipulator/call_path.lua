@@ -5,35 +5,38 @@ local UTILS = require 'manipulator.utils'
 ---@overload fun(...):manipulator.Region
 ---@class manipulator.CallPath.Region: manipulator.CallPath,manipulator.Region,{[string]:manipulator.CallPath.Region|fun(...):manipulator.CallPath.Region}
 
-local fb_call_wrap = {} -- wrap for a fallback call if the next key doesn't exist on the current item
-function fb_call_wrap.of(cfg) return setmetatable(cfg, fb_call_wrap) end
-function fb_call_wrap:__call(_, ...) -- catch args, without provided self, decide the action on next index
-	self.args = { ... }
-	return self
-end
-function fb_call_wrap:__index(key)
-	local wrappee = rawget(self.item, key)
-	if wrappee then -- is in static module -> no `self` needed
-		self[key] = function(_, ...) return wrappee(...) end
-	elseif rawget(self.item, key) then -- check the static methods
-		-- cannot use UTILS.self_wrap because CallPath always calls in method style
-		self[key] = function(_, ...) return wrappee[key](wrappee, ...) end
-	else -- call fb_fn to get the object version otherwise
-		wrappee = self.item[self.fb_fn](unpack(self.args))
-		-- NO saving because we already called a method
-		return function(_, ...) return wrappee[key](wrappee, ...) end
-	end
-	return self[key]
-end
-setmetatable(fb_call_wrap, fb_call_wrap)
-
 local mod_wrap = {}
-function mod_wrap:__index(key)
-	-- will be called only if the index isn't found, therefore is new and needs initializing
-	self[key] = fb_call_wrap.of { item = require('manipulator.' .. key), fb_fn = 'current' }
-	return self[key]
+do
+	local fb_call_wrap = {} -- wrap for a fallback call if the next key doesn't exist on the current item
+	function fb_call_wrap:__tostring() return '' end
+	function fb_call_wrap:__call(_, ...) -- catch args without provided self
+		return setmetatable({ item = self.item, args = { ... } }, fb_call_wrap)
+	end
+	function fb_call_wrap:__index(key)
+		local wrappee = rawget(self.item, key)
+		if wrappee then -- is in static module -> no `self` needed
+			self[key] = function(_, ...) return wrappee(...) end
+		elseif rawget(self.item, key) then -- check the static methods
+			-- cannot use UTILS.self_wrap because CallPath always calls in method style
+			self[key] = function(_, ...) return wrappee[key](wrappee, ...) end
+		else -- call fallback function to get the object version and seek the key there
+			-- index with the table to have a unique key for the given args
+			wrappee = self.item.current(unpack(self.args))
+			self[self.args] = wrappee
+			return function(_, ...) return wrappee[key](wrappee, ...) end
+		end
+		return self[key]
+	end
+	setmetatable(fb_call_wrap, fb_call_wrap)
+
+	function mod_wrap:__tostring() return '' end
+	function mod_wrap:__index(key)
+		-- will be called only if the index isn't found, therefore is new and needs initializing
+		self[key] = setmetatable({ item = require('manipulator.' .. key), args = {} }, fb_call_wrap)
+		return self[key]
+	end
+	setmetatable(mod_wrap, mod_wrap)
 end
-setmetatable(mod_wrap, mod_wrap)
 
 ---@class manipulator.CallPath: manipulator.CallPath.Opts
 ---@field private item any
@@ -91,6 +94,9 @@ function CallPath:new(o)
 
 	return setmetatable(o, CallPath)
 end
+
+---@private
+function CallPath:__tostring() return vim.inspect(self.path) end
 
 ---@private
 function CallPath:_add_to_path(elem)
