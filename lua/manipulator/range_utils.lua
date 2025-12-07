@@ -161,16 +161,14 @@ do -- ### Current state helpers
 	end
 
 	---@param point manipulator.RangeType 0-indexed point
-	---@param offset_insert? boolean if end in 's'/'i' mode should get extra +1 offset (default: true)
-	---@param start_insert? boolean if we should enter insert mode (default: false)
-	function M.jump(point, offset_insert, start_insert)
+	---@param insert_after? boolean should the cursor come after the point in 's'/'i' mode
+	---@param start_insert? boolean should we enter insert mode
+	function M.jump(point, insert_after, start_insert)
 		local buf, range = M.decompose(point)
 		local mode = vim.fn.mode()
 		if mode == 'i' or mode == 's' or start_insert then
 			M.fix_end(buf, range) -- shifts back by one if at EOL
-			if offset_insert ~= false then
-				range[2] = range[2] + 1 -- we want insert to be after the selection -> add 1 to all cases
-			end
+			if insert_after then range[2] = range[2] + 1 end -- to be after the selection
 			if start_insert and mode ~= 'i' then vim.cmd.startinsert() end
 		end
 

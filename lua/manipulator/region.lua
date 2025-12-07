@@ -219,7 +219,7 @@ end
 ---@class manipulator.Region.paste.Opts
 ---@field dst? manipulator.RangeType where to put the text relative to (default: self)
 ---@field text? string text to paste (default: `self:get_text()`)
----@field mode 'before'|'after'|'over' method of modifying the dst range text content, doesn't support 'swap' mode
+---@field mode? 'before'|'after'|'over' method of modifying the dst range text content, doesn't support 'swap' mode
 ---@field linewise? boolean
 
 --- Paste like with visual mode motions - prefer using vim motions
@@ -232,7 +232,7 @@ function Region:paste(opts)
 		return
 	end
 
-	if opts.linewise then
+	if opts.linewise then -- mode='over' doesn't make sensehere, so we ignore it
 		if opts.mode == 'after' then range[1] = range[3] + 1 end
 		range[3] = range[1]
 		range[2] = 0
@@ -336,12 +336,12 @@ function Region:swap(opts)
 				)
 				vim.cmd.normal 'o'
 			end
-			RANGE_UTILS.jump({ buf = n_buf, range = n_start }, false)
+			RANGE_UTILS.jump { buf = n_buf, range = n_start }
 		end
 	else
 		-- always jump to the tracked region to calculate the shift afterwards
 		if opts.cursor_with then
-			RANGE_UTILS.jump({ buf = sbuf, range = c_at_src and drange or srange }, false)
+			RANGE_UTILS.jump { buf = sbuf, range = c_at_src and drange or srange }
 		end
 		vim.lsp.util.apply_text_edits({ s_edit, d_edit }, sbuf, 'utf-8')
 
@@ -357,10 +357,10 @@ function Region:swap(opts)
 			)
 
 			if v_pos then
-				RANGE_UTILS.jump(RANGE_UTILS.addRange(v_pos, v_end and n_end or n_start), false)
+				RANGE_UTILS.jump(RANGE_UTILS.addRange(v_pos, v_end and n_end or n_start))
 				vim.cmd.normal 'o'
 			end
-			RANGE_UTILS.jump(RANGE_UTILS.addRange(c_pos, c_end and n_end or n_start), false)
+			RANGE_UTILS.jump(RANGE_UTILS.addRange(c_pos, c_end and n_end or n_start))
 		end
 	end
 end
