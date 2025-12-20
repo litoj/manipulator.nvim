@@ -151,12 +151,6 @@ local function get_ft_config(expanded, buf)
 end
 
 ---@override
-function TSRegion:expand_config(config)
-	local orig = self.config or get_ft_config(false)
-	return activate_enablers(UTILS.expand_config(orig.presets, orig, config, self.opt_inheritance))
-end
-
----@override
 function TSRegion:action_opts(opts, action)
 	return activate_enablers(
 		UTILS.get_opts_for_action(self.config or get_ft_config(true, self.buf), opts, action, self.opt_inheritance)
@@ -373,7 +367,7 @@ do -- ### Wrapper for nil TSNode matches
 	local nil_fn = function(self) return self end
 	local nr_index = Region.class.Nil.__index
 
-	local pass_through = { Nil = true, action_opts = true }
+	local pass_through = { Nil = true, opt_inheritance = true, action_opts = true }
 	function Region.class.Nil:__index(key)
 		if rawget(TSRegion, key) then
 			if pass_through[key] then return TSRegion[key] end

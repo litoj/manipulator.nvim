@@ -44,19 +44,10 @@ function M.setup(config)
 	return M
 end
 
---- Resolve option inheritance etc. and set automatic enabler tables index fallbacks.
----@generic O: manipulator.Region.Config
----@param config `O`|string user config to get expanded - updated inside
----@return O cfg expanded with all default config
-function Region:expand_config(config)
-	local orig = self.config or M.config
-	return UTILS.expand_config(orig.presets, orig, config, self.opt_inheritance)
-end
-
 ---@protected
 ---@generic O: manipulator.Region.Config
 ---@param opts? `O`|string user options to get expanded - updated into a copy
----@param action string
+---@param action? string
 ---@return O # opts expanded for the given method
 function Region:action_opts(opts, action)
 	return UTILS.get_opts_for_action(self.config or M.config, opts, action, self.opt_inheritance)
@@ -72,23 +63,18 @@ function Region:new(base)
 	return self
 end
 
----@param override table modifications to apply to the cloned object
+---@param override? table modifications to apply to the cloned object
 function Region:clone(override)
 	return setmetatable(vim.tbl_deep_extend('keep', override or {}, self), getmetatable(self))
 end
 
 --- Create a copy of this node with different defaults. (always persistent)
 ---@generic O: manipulator.Region.Config
----@generic S: manipulator.Region
----@param self `S`
 ---@param config `O`|string
 ---@param inplace boolean should we replace current config or clone the region first (default: false)
----@return S self
 function Region:with(config, inplace)
-	---@diagnostic disable-next-line: undefined-field
 	local ret = inplace and self or self:clone()
-	---@diagnostic disable-next-line: undefined-field
-	ret.config = self:expand_config(config) -- TODO: remove and replace with action_opts
+	ret.config = self:action_opts(config)
 	return ret
 end
 
@@ -512,7 +498,7 @@ end
 
 do -- ### Wrapper for nil matches
 	---@class manipulator.Region.Nil: manipulator.Region
-	local NilRegion = {}
+	local NilRegion = { config = { inherit = false, presets = {} } }
 	function NilRegion:clone() return self end -- nil is only one
 	NilRegion.with = NilRegion.clone
 	NilRegion.paste = NilRegion.clone
@@ -520,6 +506,7 @@ do -- ### Wrapper for nil matches
 	-- allow queue_or_run() to deselect the group and collect() to return an empty Batch
 	local passthrough = {
 		Nil = true,
+		opt_inheritance = true,
 		action_opts = true,
 		highlight = true,
 		collect = true,
@@ -543,7 +530,7 @@ function M.from(range) return Region:new(range) end
 ---@param ignore_eol? boolean if last newline should not count as another line (default: true)
 ---@return manipulator.Region
 function M.from_text(text, offset, ignore_eol)
-	-- TODO: correctly should set the whole object as linewise
+	-- NOTE: correctly should set the whole object as linewise
 	if ignore_eol ~= false and text:sub(#text) == '\n' then text = text:sub(1, #text - 1) end
 	local lines = vim.split(text, '\n')
 	offset = offset or { 0, 0 }
