@@ -108,11 +108,7 @@ function Batch:length() return #self.items end
 ---@return fun(item):unknown
 local function action_to_fn(action)
 	return type(action) == 'function' and action
-		or action.path -- manipulator.CallPath
-			and function(x)
-				action.item = x
-				return action:exec()
-			end
+		or action.path and function(x) return action:exec(x) end -- manipulator.CallPath
 		or (not action[1] and function(x) return x[action](x) end) -- string
 		or function(x) -- string[]
 			for _, a in ipairs(action) do

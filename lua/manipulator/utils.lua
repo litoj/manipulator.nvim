@@ -84,86 +84,91 @@ do -- ### module helpers
 	end
 end
 
-do -- ### opts helpers
-	--- Extend {t1} directly without creating a copy. Number-indexed values get appended!
-	---@param mode 'keep'|'force' if t1 attributes can get overriden by t2
-	---@param t1 table
-	---@param t2 table
-	---@param depth? integer|boolean number of levels to extend, true for infinite (default: 0)
-	---@param deep_copy? boolean|'noref' if t2 values should be cloned or can be used directly
-	---   - 'noref' sets the `noref` param of `vim.deepcopy()` to `true`
-	---@return table t1
-	function M.tbl_inner_extend(mode, t1, t2, depth, deep_copy)
-		if t1 == t2 then return t1 end
-		if not depth then
-			depth = 0
-		elseif depth == true then
-			depth = math.huge
-		end
+function M.with_default(val, default)
+	if val == nil then return default end
+	return val
+end
 
-		for k, v2 in pairs(t2) do
-			if type(k) == 'number' and type(v2) ~= 'table' then
-				table.insert(t1, v2)
-			else
-				local v1 = t1[k]
-				if depth > 0 and type(v1) == 'table' and type(v2) == 'table' then
-					t1[k] = M.tbl_inner_extend(mode, v1, v2, depth - 1, deep_copy)
-				elseif v1 == nil or mode == 'force' then
-					t1[k] = type(v2) == 'table' and deep_copy and vim.deepcopy(v2, deep_copy == 'noref') or v2
-				end
-			end
-		end
-		return t1
+--- Extend {t1} directly without creating a copy. Number-indexed values get appended!
+---@param mode 'keep'|'force' if t1 attributes can get overriden by t2
+---@param t1 table
+---@param t2 table
+---@param depth? integer|boolean number of levels to extend, true for infinite (default: 0)
+---@param deep_copy? boolean|'noref' if t2 values should be cloned or can be used directly
+---   - 'noref' sets the `noref` param of `vim.deepcopy()` to `true`
+---@return table t1
+function M.tbl_inner_extend(mode, t1, t2, depth, deep_copy)
+	if t1 == t2 then return t1 end
+	if not depth then
+		depth = 0
+	elseif depth == true then
+		depth = math.huge
 	end
 
-	---@class manipulator.Inheritable
-	---@field inherit? boolean|string should inherit from persistent opts, or a preset (default: true for opts, false for table keys)
-
-	do
-		---@class manipulator.Enabler map or list of enabled/disabled values (state in a list is the opposite of ['*'])
-		---@field [string] boolean
-		---@field [integer] string
-		---@field ['*']? boolean
-		---@field inherit? boolean should we inherit from the parent config (default: false)
-		---@field matchers? string[] list of lua patterns for more complex filtering
-
-		local enabler_meta = {
-			__index = function(self, key)
-				if type(key) ~= 'string' then return nil end
-				if rawget(self, 'matchers') then
-					for _, m in ipairs(self.matchers) do
-						if key:match(m) then return not rawget(self, '*') end
-					end
-				end
-				return rawget(self, '*')
-			end,
-		}
-
-		--- Setup automatic fallback evaluation + transform list into a map of enabled values
-		---@generic K: string
-		---@param enabler manipulator.Enabler
-		---@param luapat_detect? string lua pattern to detect list items that are luapats, not str
-		---@return manipulator.Enabler<K> enabler with added metatable for resolving default values to '*'
-		function M.activate_enabler(enabler, luapat_detect)
-			if enabler[1] then
-				local val = not enabler['*']
-				for i, key in ipairs(enabler) do
-					enabler[i] = nil
-					if luapat_detect and key:match(luapat_detect) then -- luapat expression
-						if not enabler.matchers then enabler.matchers = {} end
-						enabler.matchers[#enabler.matchers + 1] = key
-					elseif not enabler[key] then
-						enabler[key] = val
-					end
-				end
-			elseif getmetatable(enabler) then
-				return enabler
+	for k, v2 in pairs(t2) do
+		if type(k) == 'number' and type(v2) ~= 'table' then
+			table.insert(t1, v2)
+		else
+			local v1 = t1[k]
+			if depth > 0 and type(v1) == 'table' and type(v2) == 'table' then
+				t1[k] = M.tbl_inner_extend(mode, v1, v2, depth - 1, deep_copy)
+			elseif v1 == nil or mode == 'force' then
+				t1[k] = type(v2) == 'table' and deep_copy and vim.deepcopy(v2, deep_copy == 'noref') or v2
 			end
-
-			return setmetatable(enabler, enabler_meta)
 		end
 	end
+	return t1
+end
 
+---@class manipulator.Inheritable
+---@field inherit? boolean|string should inherit from persistent opts, or a preset (default: true for opts, false for table keys)
+
+do -- enabler maker
+	---@class manipulator.Enabler map or list of enabled/disabled values (state in a list is the opposite of ['*'])
+	---@field [string] boolean
+	---@field [integer] string
+	---@field ['*']? boolean
+	---@field inherit? boolean should we inherit from the parent config (default: false)
+	---@field matchers? string[] list of lua patterns for more complex filtering
+
+	local enabler_meta = {
+		__index = function(self, key)
+			if type(key) ~= 'string' then return nil end
+			if rawget(self, 'matchers') then
+				for _, m in ipairs(self.matchers) do
+					if key:match(m) then return not rawget(self, '*') end
+				end
+			end
+			return rawget(self, '*')
+		end,
+	}
+
+	--- Setup automatic fallback evaluation + transform list into a map of enabled values
+	---@generic K: string
+	---@param enabler manipulator.Enabler
+	---@param luapat_detect? string lua pattern to detect list items that are luapats, not str
+	---@return manipulator.Enabler<K> enabler with added metatable for resolving default values to '*'
+	function M.activate_enabler(enabler, luapat_detect)
+		if enabler[1] then
+			local val = not enabler['*']
+			for i, key in ipairs(enabler) do
+				enabler[i] = nil
+				if luapat_detect and key:match(luapat_detect) then -- luapat expression
+					if not enabler.matchers then enabler.matchers = {} end
+					enabler.matchers[#enabler.matchers + 1] = key
+				elseif not enabler[key] then
+					enabler[key] = val
+				end
+			end
+		elseif getmetatable(enabler) then
+			return enabler
+		end
+
+		return setmetatable(enabler, enabler_meta)
+	end
+end
+
+do -- ### config inheritance/extension helpers
 	---@alias manipulator.KeyInheritanceMap {[string]: boolean|string} which preset, if any, should the given option inherit from
 	--- - false for keys, true|string for action options (string to inherit from another key)
 
@@ -181,31 +186,35 @@ do -- ### opts helpers
 		presets[true] = super
 		config = type(config) ~= 'table' and { inherit = config } or config ---@type table
 
-		local last
+		local last, preset
 		while config.inherit ~= false do
-			local preset = presets[config.inherit or true]
-			if not preset or (config.inherit or true) == last then
-				if preset ~= nil then break end -- prevent recursion (useful for preset merging during setup)
-				error('Invalid preset "' .. (config.inherit or true) .. '"')
+			preset = presets[config.inherit or true]
+			if not preset or preset == last then -- prevent recursion
+				if preset ~= nil then break end -- preset merging without finalization
+				error('Invalid preset: ' .. config.inherit)
 			end
-			last = config.inherit or true
+			last = preset
 
 			config.inherit = nil -- allow preset to set its own inheritance object
 			M.tbl_inner_extend('keep', config, preset)
 		end
 
 		for key, is_action in pairs(key_inheritance) do
-			if not is_action then -- actions are resolved separately -> ignore them here
-				local val = config[key]
-				if type(val) == 'table' and rawget(val, 'inherit') then
-					last = nil
-					while rawget(val, 'inherit') do -- rawget to not trigger enablers
-						local preset = presets[val.inherit]
-						if val.inherit ~= last or not preset then break end -- breakpoint for preset merging
-
-						val.inherit = nil
-						if preset[key] then M.tbl_inner_extend('keep', val, preset[key]) end
+			local val = config[key]
+			preset = type(val) == 'table' and M.with_default(rawget(val, 'inherit'), is_action) ---@type string|table?
+			if preset then -- TODO: should not expand all actions when expanding the config into user's opts
+				last = nil
+				while preset do -- rawget to not trigger enablers
+					preset = presets[preset]
+					if not preset or preset == last then -- prevent recursion
+						if is_action or preset ~= nil then break end -- action/preset merging without finalization
+						error('Invalid preset: ' .. val.inherit)
 					end
+					last = preset
+
+					val.inherit = nil
+					if preset[key] then M.tbl_inner_extend('keep', val, preset[key]) end
+					preset = M.with_default(rawget(val, 'inherit'), is_action)
 				end
 			end
 		end
@@ -213,6 +222,75 @@ do -- ### opts helpers
 		presets[true] = nil -- avoid recursion and hence memory leaking
 		config.presets = super and presets or nil
 		return config
+	end
+
+	--- Transitively expand action inheritance chain.
+	--- Action defaults inheritance from other presets must be resolved with `M.expand_config`.
+	--- - such as: `cfg={ presets={['P1']={ [action] = {def_val=1} }}, [action] = { inherit='P1' } }`
+	--- Can inherit only from other actions, or its parent.
+	--- Actions should be mapped to their defaults in {key_inheritance}.
+	function M.expand_action(config, action, key_inheritance)
+		action = action or ''
+		-- start with the action defaults so that the defaults get saved
+		local act_opts = config[action] or {}
+		local p_name = key_inheritance[action]
+
+		while act_opts.inherit ~= false do -- resolve presets for the action
+			if act_opts.inherit == nil then act_opts.inherit = p_name or true end
+
+			if act_opts.inherit == true then
+				act_opts.inherit = nil
+				M.tbl_inner_extend('keep', act_opts, config)
+			else
+				p_name = key_inheritance[act_opts.inherit] -- default parent of the inherited action
+				local preset = config[act_opts.inherit]
+				act_opts.inherit = nil
+				if preset then M.tbl_inner_extend('keep', act_opts, preset) end
+			end
+		end
+
+		for key, is_action in pairs(key_inheritance) do -- action keys can inherit only from parent
+			local val = act_opts[key]
+			if not is_action and type(val) == 'table' and rawget(val, 'inherit') then -- avoid enablers
+				if val.inherit ~= true then
+					error(
+						'Preset referencing not allowed in action defaults. '
+							.. vim.inspect { action = action, key = key, inherit_request = val.inherit }
+					)
+				end
+
+				val.inherit = nil
+				if config[key] then M.tbl_inner_extend('keep', val, config[key]) end
+			end
+		end
+
+		return act_opts
+	end
+
+	--- Expands `opts.actions[action]` into {opts}.
+	---@generic O: manipulator.Inheritable
+	---@param config { [string]: O, presets: {[string]: O|{[string]: O}} }
+	---@param opts? `O`|string user options specifically for the action, will get modified
+	---@param action? string
+	---@param key_inheritance {[string]: boolean|string} keys with inheritance defaults
+	---@return O
+	function M.get_opts_for_action(config, opts, action, key_inheritance)
+		if not action then return M.expand_config(config.presets, config, opts, key_inheritance) end
+
+		opts = type(opts) ~= 'table' and { inherit = opts } or opts ---@type table M.tbl_inner_extend('force', {}, opts, 2)
+		if opts.inherit == false then return opts end
+		local act_opts = M.expand_action(
+			-- new table with inheritance to distinguish inherited keys from explicit user options
+			opts.inherit == nil and config
+				or M.expand_config(config.presets, config, { inherit = opts.inherit }, key_inheritance),
+			action,
+			key_inheritance
+		)
+		act_opts.presets = nil
+		opts.inherit = true -- merge action defaults into user opts
+		M.expand_config(config.presets, act_opts, opts, key_inheritance)
+
+		return opts
 	end
 
 	---@return table new
@@ -238,64 +316,6 @@ do -- ### opts helpers
 		local config = M.expand_config(presets, super, new, key_inheritance)
 		presets.active = config
 		return config
-	end
-
-	--- Expand action inheritance chain - can inherit only from other actions, or its parent.
-	--- Actions should be mapped to their defaults in {key_inheritance}.
-	function M.expand_action(config, action, key_inheritance)
-		action = action or ''
-		local act_opts = config[action] or {}
-		local p_name = key_inheritance[action]
-		while act_opts.inherit ~= false do -- resolve presets for the action
-			if act_opts.inherit == nil then act_opts.inherit = p_name or true end
-
-			if act_opts.inherit == true then
-				act_opts.inherit = nil
-				M.tbl_inner_extend('keep', act_opts, config)
-			else
-				p_name = key_inheritance[act_opts.inherit] -- default parent of the inherited action
-				local preset = config[act_opts.inherit] or { inherit = true }
-				act_opts.inherit = nil
-				M.tbl_inner_extend('keep', act_opts, preset)
-			end
-		end
-
-		for key, is_action in pairs(key_inheritance) do
-			local val = act_opts[key]
-			if not is_action and type(val) == 'table' and val.inherit then
-				if val.inherit ~= true then error 'Preset referencing not allowed in action defaults.' end
-
-				val.inherit = nil
-				if config[key] then M.tbl_inner_extend('keep', val, config[key]) end
-			end
-		end
-
-		return act_opts
-	end
-
-	--- Expands `opts.actions[action]` into {opts}.
-	---@generic O: manipulator.Inheritable
-	---@param config { [string]: O, presets: {[string]: O|{[string]: O}} }
-	---@param opts? `O`|string user options specifically for the action
-	---@param action? string
-	---@param key_inheritance {[string]: boolean|string} keys with inheritance defaults
-	---@return O
-	function M.get_opts_for_action(config, opts, action, key_inheritance)
-		---@diagnostic disable-next-line: param-type-mismatch
-		opts = type(opts) ~= 'table' and { inherit = opts } or M.tbl_inner_extend('force', {}, opts, 2)
-		if opts.inherit == false then return opts end
-		local act_opts = M.expand_action(
-			-- new table with inheritance to distinguish inherited keys from explicit user options
-			opts.inherit == nil and config
-				or M.expand_config(config.presets, config, { inherit = opts.inherit }, key_inheritance),
-			action,
-			key_inheritance
-		)
-		act_opts.presets = nil
-		opts.inherit = true -- now copy the action defaults into the user opts
-		M.expand_config(config.presets, act_opts, opts, key_inheritance)
-
-		return opts
 	end
 end
 

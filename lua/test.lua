@@ -291,7 +291,7 @@ local function bench_filters()
 		methods = {
 			sts = function(types) sts.filtered_jump(types, true, {}) end,
 			mts = function(types)
-				mts.current():next_in_graph({ types = types, allow_child = true }):jump()
+				mts.current():next({ types = types, allow_child = true }):jump()
 			end,
 		},
 		args = function(i)

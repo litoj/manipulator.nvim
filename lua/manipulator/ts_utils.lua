@@ -6,7 +6,7 @@ local RANGE_UTILS = require 'manipulator.range_utils'
 
 ---@param opts manipulator.TSRegion.Opts
 ---@param node TSNode
----@param return_node TSNode?
+---@param return_node TSNode? is the result when at a new range but {node} has bad type
 ---@param new TSNode?
 ---@param prefer_new boolean if the loop output would be the new node
 ---@return boolean # if the loop can end and return {return_node}
@@ -15,11 +15,12 @@ function M.valid_parented_node(opts, node, return_node, new, prefer_new)
 	-- ensure we hold the highest acceptable node
 	if not prefer_new and opts.types[node:type()] then return_node = node end
 
-	-- test for a new range size
+	-- have we found a node of a different size?
 	if new and RANGE_UTILS.rangeContains({ node:range() }, { new:range() }) ~= 0 then
 		if prefer_new then
 			if opts.types[new:type()] then return true, new end
 		else
+			-- accepts a node that may not be the top one in the range, but has acceptable type
 			if return_node then return true, return_node end
 		end
 	end
@@ -148,8 +149,7 @@ function M.get_child(opts, node, ltree, idx)
 
 		-- pick the node at the particular idx/position
 		if type(idx) == 'table' then
-			child =
-				node:child_with_descendant(node:named_descendant_for_range(idx[1], idx[2], idx[3], idx[4]))
+			child = node:child_with_descendant(node:named_descendant_for_range(idx[1], idx[2], idx[3], idx[4]))
 		else
 			child = (cnt + idx) >= 0 and node:named_child(idx >= 0 and 0 or (cnt + idx)) ---@type TSNode?
 		end
@@ -162,72 +162,91 @@ function M.get_child(opts, node, ltree, idx)
 end
 
 ---@class manipulator.TSRegion.GraphOpts: manipulator.TSRegion.Opts
----@field allow_child? boolean if children of the current node can be returned
+---@field allow_child? boolean if children of the current node can be returned (NOTE: forced `false` for prev)
+---@field max_descend? integer|false how many lower levels to scan for a result (not necessarily direct child)
+---@field max_ascend? integer|false the furthest parent to consider returning
+---@field max_link_dst? integer|false how far from the original can the common ancestor be (<= `max_ascend`)
 ---@field start_point? 'cursor'|Range2 0-indexed, from where to start looking for nodes
 ---@field compare_end? boolean should we look in direction by end of node or start
 -- ---@field match string scheme query to match TODO
 
-local function start_point_to_byte(sp, fallback)
-	if sp == 'cursor' then sp = RANGE_UTILS.current_point().range end
-	return sp and (vim.fn.line2byte(sp[1] + 1) - 1 + sp[2]) or fallback
-end
-
----@type fun(opts:manipulator.TSRegion.GraphOpts, node:TSNode,
+---@type fun(direction:'prev'|'next',opts:manipulator.TSRegion.GraphOpts, node:TSNode,
 ---ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
-function M.next_in_graph(opts, node, ltree)
+function M.search_in_graph(direction, opts, node, ltree)
 	local types = opts.types ---@type manipulator.Enabler
-	local cmp_method = opts.compare_end and node.end_ or node.start
-	local base_point = math.max(
-		opts.allow_child and select(3, node:start()) or select(3, node:end_()),
-		start_point_to_byte(opts.start_point, -1)
-	)
-	local ok_range = function(node) return select(3, cmp_method(node)) > base_point end
+	local max_depth = opts.max_descend or math.huge
+	local min_shared = -(opts.max_link_dst or math.huge)
+	local min_depth = -(opts.max_ascend or -min_shared)
+	local cmp_fn = opts.compare_end and node.end_ or node.start
 
-	local tmp, tmp_tree
-	while node and not (ok_range(node) and types[node:type()]) do
-		tmp, tmp_tree = M.get_direct_child(opts, node, ltree, 0)
+	local function start_point_to_byte(sp, fallback)
+		if sp == 'cursor' then sp = RANGE_UTILS.current_point().range end
+		return sp and (vim.fn.line2byte(sp[1] + 1) - 1 + sp[2]) or fallback
+	end
 
-		if tmp then
-			ltree = tmp_tree
-		else
-			while node and not tmp do
-				tmp = node:next_named_sibling()
-				if not tmp then
-					node, ltree = M.get_direct_parent(opts, node, ltree)
+	local o_range = { node:range() }
+	local depth = 0
+	local tmp, tmp_tree = nil, ltree
+	local ok_range
+	local continue = function()
+		return node and not (types[node:type()] and ok_range(node) and not RANGE_UTILS.equal({ node:range() }, o_range))
+	end
+
+	if direction == 'prev' then
+		local base_point = math.min(select(3, node:start()), start_point_to_byte(opts.start_point, math.huge))
+		ok_range = function(node) return select(3, cmp_fn(node)) < base_point end
+
+		while continue() do
+			-- must begin with sibling to prevent looping par-child in repeated uses
+			tmp = node:prev_named_sibling()
+
+			if tmp then
+				tmp_tree = ltree
+				while tmp do
+					node, ltree = tmp, tmp_tree
+					if depth == max_depth then break end
+					depth = depth + 1
+					tmp, tmp_tree = M.get_direct_child(opts, node, ltree, -1)
+				end
+			elseif depth > min_shared then
+				depth = depth - 1
+				node, ltree = M.get_direct_parent(opts, node, ltree)
+			else
+				node = nil
+			end
+		end
+	else -- direction == 'next'
+		local base_point = math.max(
+			opts.allow_child and select(3, node:start()) or select(3, node:end_()),
+			start_point_to_byte(opts.start_point, -1)
+		)
+		ok_range = function(node) return select(3, cmp_fn(node)) > base_point end
+
+		while continue() do
+			if depth < max_depth then
+				depth = depth + 1
+				tmp, tmp_tree = M.get_direct_child(opts, node, ltree, 0)
+			else
+				tmp = nil
+			end
+
+			if tmp then
+				ltree = tmp_tree
+			else
+				while node and not tmp and depth > min_shared do
+					tmp = node:next_named_sibling()
+					if not tmp then
+						depth = depth - 1
+						node, ltree = M.get_direct_parent(opts, node, ltree)
+					end
 				end
 			end
-		end
 
-		node = tmp
-	end
-	return node, ltree
-end
-
----@type fun(opts:manipulator.TSRegion.GraphOpts, node:TSNode,
----ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
-function M.prev_in_graph(opts, node, ltree)
-	local types = opts.types ---@type manipulator.Enabler
-	local cmp_method = opts.compare_end and node.end_ or node.start
-	local base_point = math.min(
-		opts.allow_child and select(3, node:end_()) or select(3, node:start()),
-		start_point_to_byte(opts.start_point, math.huge)
-	)
-	local ok_range = function(node) return select(3, cmp_method(node)) < base_point end
-
-	local tmp, tmp_tree = nil, ltree
-	while node and not (ok_range(node) and types[node:type()]) do
-		tmp = node:prev_named_sibling()
-
-		if tmp then
-			tmp_tree = ltree
-			while tmp do
-				node, ltree = tmp, tmp_tree
-				tmp, tmp_tree = M.get_direct_child(opts, node, ltree, -1)
-			end
-		else
-			node, ltree = M.get_direct_parent(opts, node, ltree)
+			node = tmp
 		end
 	end
+
+	if depth < min_depth then return nil end
 	return node, ltree
 end
 

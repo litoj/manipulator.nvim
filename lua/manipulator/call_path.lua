@@ -18,6 +18,7 @@ do
 			return self.item[key]
 		else -- call fallback function to get the object version and seek the key there
 			wrappee = self.item.current(unpack(self.args))
+			if not wrappee[key] then error('No such method ' .. key .. '() on ' .. tostring(wrappee)) end
 			return function(_, ...) return wrappee[key](wrappee, ...) end
 		end
 	end
@@ -32,7 +33,7 @@ do
 	setmetatable(mod_wrap, mod_wrap)
 end
 
----@alias manipulator.MotionOpt 'fallback'|'print_last'|'error'
+---@alias manipulator.MotionOpt (nil|true|'print')|('ignore'|false) whether to inform the user when the motion falls short of the requested iteration count
 
 ---@private
 ---@class manipulator.CallPath.CallInfo
@@ -44,10 +45,12 @@ end
 ---@class manipulator.CallPath.Config
 ---@field immutable boolean if path additions produce new objects instead of updates
 ---@field exec_on_call boolean|integer if calls should be executed (at all) or executed with delay. Makes return value useless when running async and `.immutable=false`.
----@field strict boolean should any unfinished or anchored path be considered an error or skipped (default: false=skip)
+---@field allow_shorter_motion boolean should we use the last valid motion iteration or produce an error when the motion cannot be repeated anymore (reached end of document)
+---@field allow_direct_calls boolean should arguments for direct calls on the wrapped object be executed or produce an error
+---@field skip_anchors boolean should any anchored path be skipped or produce an error
 
 ---@class manipulator.CallPath: manipulator.CallPath.Config
----@field private item any
+---@field public item any
 ---@field private path manipulator.CallPath.CallInfo[]
 ---@field private idx integer at which index do we write the path
 ---@field private next_as_motion? manipulator.MotionOpt if the next index/call should be made a motion
@@ -84,7 +87,10 @@ local M = UTILS.static_wrap_for_oop(CallPath, {
 M.default_config = {
 	immutable = true,
 	exec_on_call = false,
-	strict = false,
+
+	allow_shorter_motion = true,
+	allow_direct_calls = false,
+	skip_anchors = true,
 
 	-- Default object values that get copied when creating a new node
 	idx = 0, ---@private
@@ -166,11 +172,12 @@ end
 --- then an index that index will get marked as a motion.
 ---
 --- Type annotation commented, until lsp_lua figures out inheritance
---- - `on_nil?` (`manipulator.MotionOpt`): (default: error message)
-function CallPath:next_with_count(on_nil)
+--- - `on_fail?` (`manipulator.MotionOpt`): if we should inform the user about failing to do enough
+---   interations, or carry on (accepting the last good value or giving an error)
+function CallPath:next_with_count(on_fail)
 	if self.immutable then self = self:new() end
 
-	self.next_as_motion = on_nil or 'error'
+	self.next_as_motion = UTILS.with_default(on_fail, 'print') or 'ignore'
 	return self
 end
 
@@ -201,20 +208,38 @@ function CallPath:__call(a1, ...)
 	return self
 end
 
+---@param inplace? boolean|table|userdata if the result should replace the object, reseting the path to {}
+--- - alternatively can run the path on the given object as if inplace=false
+function CallPath:exec(inplace)
+	if rawget(self, 'needs_coroutine') then
+		local co = coroutine.running()
+		if not co then
+			return coroutine.wrap(function() return self:_exec(inplace) end)()
+		end
+	end
+	return self:_exec(inplace)
+end
+
 ---@private
 function CallPath:_exec(inplace)
-	if inplace then
+	if inplace == true then
 		if self.running then return end -- basic attempt for async locking
 		self.running = true
+	elseif inplace then
+		self.backup = self.item
+		self.item = inplace
 	end
 
 	local item = self.item
 	for _, call in ipairs(self.path) do
 		if not rawget(call, 'field') then -- raw to skip anchor metatables
 			if rawget(call, 'args') then -- call the object directly
+				if not self.allow_direct_calls then
+					error('CallPath direct calls are not allowed: ' .. vim.inspect(self.path))
+				end
 				item = item(unpack(call.args))
-			elseif self.strict then
-				error('Invalid CallInfo: ' .. vim.inspect(call) .. '\nin CallPath: ' .. vim.inspect(self.path))
+			elseif not self.skip_anchors then
+				error('CallPath anchor skipping not allowed: ' .. vim.inspect(self.path))
 			end
 		else
 			if call.args or call.as_motion then -- method call
@@ -233,46 +258,37 @@ function CallPath:_exec(inplace)
 					if len == vim.v.count1 then
 						item = batch:at(-1)
 					else
-						vim.notify('Got to count: ' .. len, vim.log.levels.INFO)
+						if call.as_motion == 'print' then vim.notify('Got to count: ' .. len, vim.log.levels.INFO) end
 
-						if call.as_motion == 'fallback' then
+						if self.allow_shorter_motion and len > 0 then
 							item = batch:at(-1)
-						elseif call.as_motion == 'print_last' then
-							return
 						else
+							if call.as_motion == 'print' then break end
 							error('CallPath iteration count not satisfied: ' .. len)
 						end
 					end
 				end
-			else
+			else -- field access or method call
 				local field = item[call.field]
 				if type(field) == 'function' or getmetatable(field).__call then
 					item = field(item) -- method without args
-				else -- field access or method call
+				else
 					item = field -- simple field access
 				end
 			end
 		end
 	end
 
-	if inplace then
+	if inplace == true then
 		self.item = item
 		self.path = {}
 		self.needs_coroutine = nil -- all steps processed -> async was also processed
 		self.running = false
+	elseif inplace then
+		self.item = self.backup
+		self.backup = nil
 	end
 	return item
-end
-
----@param inplace? boolean if the result should replace the object, reseting the path to {}
-function CallPath:exec(inplace)
-	if rawget(self, 'needs_coroutine') then
-		local co = coroutine.running()
-		if not co then
-			return coroutine.wrap(function() return self:_exec(inplace) end)()
-		end
-	end
-	return self:_exec(inplace)
 end
 
 return M

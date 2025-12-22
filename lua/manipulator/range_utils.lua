@@ -40,13 +40,9 @@ do -- ### Range converions
 end
 
 do -- ### Comparators
-	---@param a Range
-	---@param b Range
 	---@return integer # <0 if a<b, 0 if a==b, >0 if a>b
 	function M.cmpPoint(a, b) return a[1] == b[1] and a[2] - b[2] or a[1] - b[1] end
 
-	---@param a Range
-	---@param b Range
 	---@return Range a with added values from b
 	function M.addRange(a, b)
 		for i, v in ipairs(a) do
@@ -59,8 +55,6 @@ do -- ### Comparators
 		return a
 	end
 
-	---@param a Range
-	---@param b Range
 	---@return Range a with subtracted values from b
 	function M.subRange(a, b)
 		for i, v in ipairs(a) do
@@ -88,6 +82,16 @@ do -- ### Comparators
 	function M.rangeContains(a, b)
 		local r1, r2 = M.cmpRange(a, b)
 		return r1 <= 0 and r2 >= 0 and (r1 == 0 and r2 == 0 and 0 or 1) or -1
+	end
+
+	---@return boolean
+	function M.equal(a, b)
+		local i = 1
+		while true do
+			if b[i] ~= a[i] then return false end
+			if a[i] == nil then return true end
+			i = i + 1
+		end
 	end
 
 	---@param r Range4

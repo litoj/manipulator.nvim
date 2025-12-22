@@ -22,12 +22,12 @@ TSRegion.__index = TSRegion
 ---@class manipulator.TSRegion.Config: manipulator.TSRegion.Opts, manipulator.Region.Config
 ---@field parent? manipulator.TSRegion.Opts
 ---@field child? manipulator.TSRegion.Opts
----@field sibling? manipulator.TSRegion.SiblingOpts
----@field next? manipulator.TSRegion.SiblingOpts
----@field prev? manipulator.TSRegion.SiblingOpts
+---@field sibling? manipulator.TSRegion.Opts
+---@field next_sibling? manipulator.TSRegion.Opts
+---@field prev_sibling? manipulator.TSRegion.Opts
 ---@field in_graph? manipulator.TSRegion.GraphOpts
----@field next_in_graph? manipulator.TSRegion.GraphOpts
----@field prev_in_graph? manipulator.TSRegion.GraphOpts
+---@field next? manipulator.TSRegion.GraphOpts
+---@field prev? manipulator.TSRegion.GraphOpts
 ---@field presets? {[string]:manipulator.TSRegion.Config}
 
 TSRegion.opt_inheritance = UTILS.tbl_inner_extend('keep', Region.opt_inheritance, {
@@ -37,11 +37,11 @@ TSRegion.opt_inheritance = UTILS.tbl_inner_extend('keep', Region.opt_inheritance
 	parent = true,
 	child = true,
 	sibling = true,
-	next = 'sibling',
-	prev = 'sibling',
-	in_graph = true,
-	next_in_graph = 'in_graph',
-	prev_in_graph = 'in_graph',
+	next_sibling = 'sibling',
+	prev_sibling = 'sibling',
+	in_graph = 'sibling',
+	next = 'in_graph',
+	prev = 'in_graph',
 })
 
 local function activate_enablers(opts)
@@ -69,42 +69,35 @@ M.default_config = {
 		'string_content',
 		'comment_content',
 
-		-- lua
-		'documentation',
+		-- Lua
 		'block',
-		'chunk',
-		'variable_list',
-		'expression_list',
 		-- 'dot_index_expression', -- = field paths
 		'method_index_expression',
 		'arguments',
 		'parameters',
 	},
-	nil_wrap = true,
-	inherit = false,
 
 	sibling = { types = { inherit = true, comment = false } },
-	next_in_graph = { start_point = 'cursor', allow_child = true },
-	prev_in_graph = { start_point = 'cursor' },
+	next = { allow_child = true },
+	prev = {},
 
+	nil_wrap = true,
+	inherit = false,
 	prefer_ft_preset = true,
 
 	presets = {
-		path = {
-			sibling = { lvl_diff = 0, ancestor_diff = 2, fallback = true, types = { inherit = true } },
-			next = { max_ancestor = 4, inherit = 'sibling' },
-			prev = {
-				max_ancestor = 5,
-				prioritize = 'ancestor_diff',
-				inherit = 'sibling',
-			},
+		-- ### General use presets
+		path = { -- configured for selecting individual fields in a path to an attribute (A.b.c.d=2)
+			in_graph = { max_link_dst = 3, max_ascend = 2, max_descend = 1, langs = { inherit = true, luadoc = false } },
+			next = { allow_child = false },
+			prev = { compare_end = true },
 		},
 
+		-- ### FileType presets
 		markdown = {
 			inherit = 'active',
 			types = {
 				inherit = true,
-				['*'] = true,
 				'list_marker_minus',
 				'inline',
 				'block_continuation',
@@ -116,9 +109,20 @@ M.default_config = {
 			inherit = 'active',
 			types = {
 				inherit = true,
-				['*'] = true,
 				'word',
 				'text',
+			},
+		},
+
+		lua = {
+			inherit = 'active',
+			types = {
+				inherit = true,
+				'documentation',
+				'diagnostic_annotation',
+				'chunk',
+				'variable_list',
+				'expression_list',
 			},
 		},
 	},
@@ -127,17 +131,10 @@ M.default_config = {
 ---@type manipulator.TSRegion.module.Config
 M.config = M.default_config
 M.config.presets.active = M.config
-for _, v in pairs(M.config.presets) do
-	activate_enablers(v)
-end
 
 ---@param config manipulator.TSRegion.module.Config
 function M.setup(config)
 	M.config = UTILS.module_setup(M.config.presets, M.default_config, config, TSRegion.opt_inheritance)
-	-- minimize repeated work of converting types list to a map
-	for _, v in pairs(M.config.presets) do
-		activate_enablers(v)
-	end
 	-- region actions on TSRegions will look for its defaults here -> copy the defaults
 	UTILS.tbl_inner_extend('keep', M.config, Region.config, 2)
 	return M
@@ -146,7 +143,7 @@ end
 local function get_ft_config(expanded, buf)
 	local bp = M.config.presets[vim.bo[buf or 0].ft]
 	-- base config is always fully expanded, because it doesn't inherit
-	if not M.config.prefer_ft_preset or not bp then return M.config end
+	if not bp or not M.config.prefer_ft_preset then return M.config end
 	return expanded and UTILS.expand_config(M.config.presets, M.config, bp, TSRegion.opt_inheritance) or bp
 end
 
@@ -161,8 +158,8 @@ end
 ---@type fun(self:manipulator.TSRegion, opts:manipulator.TSRegion.Opts, node?:TSNode,
 --- ltree?:vim.treesitter.LanguageTree): manipulator.TSRegion
 function TSRegion:new(opts, node, ltree)
-	-- method opts also apply to the resul node
-	-- always select the top node of the same range and valid type
+	-- method opts also apply to the result node
+	-- always select the top node of valid type and the same range (not the top if top has bad type)
 	node, ltree = TS_UTILS.top_identity(opts, node, ltree or self.ltree)
 	if not node or not ltree then return opts.nil_wrap and self.Nil end
 
@@ -225,131 +222,41 @@ function TSRegion:closest_child(opts)
 	return node and node.node and node or self:closer_edge_child(opts)
 end
 
----@class manipulator.TSRegion.SiblingOpts: manipulator.TSRegion.Opts not necessarily a sibling, rather a related member in a direction
----@field max_ancestor? integer how far up can the shared ancestor be from self - positive int (nil=infinite)
----@field max_skip? integer how many found children can we skip before giving up (nil=infinite)
----@field lvl_diff? integer height diff from the original
----@field ancestor_diff? integer max height diff from the shared ancestor (accepts node if equal)
----@field prioritize? 'lvl_diff'|'ancestor_diff' which match to prefer returning (returns the other as fallback) (defalt: 'lvl_diff')
----@field fallback? boolean failing to satisfy these settings should we return the last found sibling
+--- Get a node in said direction. only
+---@param opts? manipulator.TSRegion.Opts|string
+---@return manipulator.TSRegion? node from the given direction
+function TSRegion:next_sibling(opts)
+	opts = self:action_opts(opts, 'next_sibling')
 
---- Get a node in said direction.
----@private
----@param direction 'prev'|'next'
----@param opts? manipulator.TSRegion.SiblingOpts|string
----@return manipulator.TSRegion? node from the given direction, TODO: currently only within the current ltree
-function TSRegion:sibling(direction, opts)
-	opts = self:action_opts(opts, direction)
-
-	opts.max_skip = (opts.max_skip or math.huge) + 1 -- +1 to first allow a visit
-	if not opts.lvl_diff and not opts.ancestor_diff then -- set defaults if no return policy exists
-		opts.lvl_diff = 0
-		opts.max_ancestor = 1 -- allow only direct siblings
-	end
-	opts.max_ancestor = (opts.max_ancestor or math.huge) - 1
-
-	local node = self.node
-	local get_child = direction == 'next' and node.named_child
-		or function(n) return n:named_child(n:named_child_count() - 1) end
-	local get_in_dir = node[direction .. '_named_sibling']
-	-- if opts.max_ancestor == 0 then return self:new(cfg, opts, get_in_dir(self.node)) end
-
-	local fallback, secondary = nil, nil ---@type TSNode?
-	local ancestor_lvl, lvl, visited = 1, 0, 0
-
-	---@type fun(ret_node:TSNode):manipulator.TSRegion
-	local ret = function(ret_node)
-		if ret_node then
-			if ret_node == node then
-				while ret_node and not opts.types[ret_node:type()] do -- find a smaller acceptable node
-					ret_node = get_child(ret_node)
-				end
-			end
-			-- use fallback nodes if primary failed
-			if not ret_node or ret_node == (secondary or (opts.fallback and fallback)) then
-				ret_node = secondary
-				while ret_node and not opts.types[ret_node:type()] do
-					ret_node = get_child(ret_node)
-				end
-				if not ret_node then return self:new(opts, opts.fallback and fallback) end
-			end
-
-			local par
-			while true do
-				par = ret_node
-				ret_node = get_child(ret_node)
-				if ---@diagnostic disable-next-line: missing-fields
-					not ret_node or RANGE_UTILS.rangeContains({ par:range() }, { ret_node:range() }) ~= 0
-				then
-					break
-				end
-			end
-			ret_node = par
-		end
-		return self:new(opts, ret_node)
+	local node = self.node:next_named_sibling()
+	while node and not opts.types[node:type()] do
+		node = node:next_named_sibling()
 	end
 
-	local tmp
-	while visited < opts.max_skip do
-		while not get_in_dir(node) do
-			node = node:parent()
-			lvl = lvl + 1
-			if lvl > opts.max_ancestor or not node then -- reached distance limit from self
-				return ret(secondary or (opts.fallback and fallback))
-			end
-
-			if lvl == ancestor_lvl then ancestor_lvl = lvl + 1 end -- shared is one above
-		end
-
-		node = get_in_dir(node)
-		fallback = node
-		visited = visited + 1
-
-		while true do
-			if opts.types[node:type()] then
-				if opts.lvl_diff then -- XXX: fully successful find
-					if lvl <= opts.lvl_diff and opts.prioritize ~= 'ancestor_diff' then return ret(node) end
-					if
-						opts.ancestor_diff
-						and ancestor_lvl - lvl >= opts.ancestor_diff
-						and opts.prioritize == 'ancestor_diff'
-					then
-						return ret(node)
-					end
-
-					if secondary == nil then secondary = node end
-				elseif opts.ancestor_diff and ancestor_lvl - lvl >= opts.ancestor_diff then
-					return ret(node)
-				end
-			end
-
-			tmp = get_child(node)
-			if not tmp then break end
-			node = tmp
-			lvl = lvl - 1
-		end
-	end
-
-	return ret(secondary or (opts.fallback and fallback))
+	return self:new(opts, node)
 end
 
 --- Get a node in said direction. only
----@param opts? manipulator.TSRegion.SiblingOpts|string
+---@param opts? manipulator.TSRegion.Opts|string
 ---@return manipulator.TSRegion? node from the given direction
-function TSRegion:next(opts) return self:sibling('next', opts) end
+function TSRegion:prev_sibling(opts)
+	opts = self:action_opts(opts, 'prev_sibling')
 
---- Get a node in said direction. only
----@param opts? manipulator.TSRegion.SiblingOpts|string
----@return manipulator.TSRegion? node from the given direction
-function TSRegion:prev(opts) return self:sibling('prev', opts) end
+	local node = self.node:prev_named_sibling()
+	while node and not opts.types[node:type()] do
+		node = node:prev_named_sibling()
+	end
+
+	return self:new(opts, node)
+end
 
 --- Get the next node in tree order (child, sibling, parent sibling)
 ---@param opts? manipulator.TSRegion.GraphOpts|string
 ---@return manipulator.TSRegion? node from the given direction
 ---@return boolean? changed_lang true if {node} is from a different language tree
-function TSRegion:next_in_graph(opts)
-	opts = self:action_opts(opts, 'next_in_graph')
-	local node, ltree = TS_UTILS.next_in_graph(opts, self.node, self.ltree)
+function TSRegion:next(opts)
+	opts = self:action_opts(opts, 'next')
+	local node, ltree = TS_UTILS.search_in_graph('next', opts, self.node, self.ltree)
 	return self:new(opts, node, ltree), ltree == self.ltree
 end
 
@@ -357,9 +264,9 @@ end
 ---@param opts? manipulator.TSRegion.GraphOpts|string
 ---@return manipulator.TSRegion? node from the given direction
 ---@return boolean? changed_lang true if {node} is from a different language tree
-function TSRegion:prev_in_graph(opts)
-	opts = self:action_opts(opts, 'prev_in_graph')
-	local node, ltree = TS_UTILS.prev_in_graph(opts, self.node, self.ltree)
+function TSRegion:prev(opts)
+	opts = self:action_opts(opts, 'prev')
+	local node, ltree = TS_UTILS.search_in_graph('prev', opts, self.node, self.ltree)
 	return self:new(opts, node, ltree), ltree == self.ltree
 end
 
@@ -406,7 +313,7 @@ function M.get(opts)
 end
 
 --- Get all matching nodes spanning the entire buffer.
----@param opts manipulator.TSRegion.module.get.Opts|{range?:nil}
+---@param opts manipulator.TSRegion.module.get.Opts|{range?:nil} GetOpts, but range is ignored
 ---@return manipulator.Batch
 function M.get_all(opts)
 	opts = M:action_opts(opts, 'get_all')
@@ -455,8 +362,6 @@ function M.current(opts)
 
 	if opts.respect_linewise == nil then opts.respect_linewise = false end
 	local region, visual = Region.current(opts)
-	opts.mouse = nil
-	opts.visual = nil
 	opts.range = region:range0()
 
 	local ret = M.get(opts) -- get the primary chosen node
@@ -471,6 +376,7 @@ function M.current(opts)
 			opts.range = region.range
 			opts.buf = region.buf
 			ret = M.get(opts)
+			opts.buf = nil
 		else -- no fallback allowed -> return nil node
 			ret = TSRegion:new(opts)
 		end

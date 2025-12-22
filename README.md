@@ -1,15 +1,31 @@
 # manipulator.nvim
 
+## Features
+
+- text ops: jump, select, move/paste, …, quickfix, mark, highlight
+- treesitter full traversal including injected languages
+  - filtering by node type and lang
+- position sources: cursor, selection, mouse click/move (via `vim.g.mousemoveevent`)
+- vim motion support (`5j`…) (via `CallPath:next_with_count`)
+- `Batch`: collecting and selecting (native or `fzf`) found matches
+- extensive behaviour configuration with clever preset inheriting
+- `CallPath`: flexible & reusable keymapping function builder
+- extensive luadocs right in the code
+
 ## TODOS
+
 - update docs & license, separate repo from the original but include references
-- TODO: add info/gtdefinition for types in info windows
+  - add example under each feature
+  - make features into ### headings, do
+- TODO: add info/gtdefinition for types in info windows - _belongs to reform.nvim_
 - TODO: matching by query syntax and catching into groups
-- TODO: make next/prev use the general next/prev traversal/type finder
 - TODO: add selection modification/filter (include trailing comma etc.)
+  - possible, but currently no predefined list of filters, could use presets to add them
 - TODO: add wrapper for dot repeat
-- TODO: add wrapper for <num>gc<X> style mappings (snf = select next function, gnn = jump next node)...
-- TODO: consider adding optional highlight of further jumps (like filtered_jump)
-- TODO: siblings should just set defaults to locals not modify the opts
+- TODO: `<num>gc<X>` mappings (snf = select next function, gnn = jump next node)...
+  - either callpath extension or type presets (f/a/s/c/l…) for the letters
+- TODO: region operators (text concat -> new region update etc.)
+  - one method with `str,R,str | R,str | str,R` generating a correctly updated region
 
 ### Syntax Tree Surfer is a plugin for Neovim that helps you surf through your document and move elements around using the nvim-treesitter API.
 
@@ -107,7 +123,8 @@ vim.keymap.set("x", "<A-k>", '<cmd>STSSwapPrevVisual<cr>', opts)
 
 ### Version 1.1 update
 
-This feature will help you save some keystrokes & brain power when you want to create some code at the top level node of your current cursor position.
+This feature will help you save some keystrokes & brain power when you want to create some code at
+the top level node of your current cursor position.
 
 ```lua
 lua require("syntax-tree-surfer").go_to_top_node_and_execute_commands(false, { "normal! O", "normal! O", "startinsert" })<cr>
@@ -117,7 +134,8 @@ The .go_to_top_node_and_execute_commands() method takes 2 arguments:
 
 1. boolean: if false then it will jump to the beginning of the node, if true it jumps to the end.
 
-1. lua table: a table that contains strings, each string is a vim command example: { "normal! O", "normal! O", "startinsert" }
+1. lua table: a table that contains strings, each string is a vim command example: { "normal! O",
+   "normal! O", "startinsert" }
 
 ---
 
@@ -261,10 +279,10 @@ require("syntax-tree-surfer").setup({
 
 #### You can also do a quick check using the command :STSPrintNodesAtCursor
 
-
 # Version 2.2 Update
 
 ### Hold and swap nodes
+
 https://user-images.githubusercontent.com/8104435/225992362-4e82d677-2ff5-463a-a910-6a6bdbf4fc9c.mp4
 
 This feature allows marking a node and then swapping it with another node.
@@ -279,14 +297,20 @@ vim.keymap.set("x", "gnh", "<cmd>STSSwapOrHoldVisual<cr>", opts)
 ```
 
 The lower-level functionality can be accessed via:
+
 ```lua
 require("syntax-tree-surfer").hold_or_swap(true) -- param is_visual boolean
 require("syntax-tree-surfer").clear_held_node()
 ```
+
 note that `STSSwapOrHoldVisual` will clear the visual selection, but `hold_or_swap(true)` will not.
 
 # Special Thanks To:
+
 ### Dr. David A. Kunz for creating [Let's create a Neovim plugin using Treesitter and Lua](https://www.youtube.com/watch?v=dPQfsASHNkg)
+
 ### NVIM Treesitter Team - https://github.com/nvim-treesitter/nvim-treesitter
+
 ### @lmburns for [#9](https://github.com/ziontee113/syntax-tree-surfer/pull/9)
+
 ### @spiderforrest for [#14](https://github.com/ziontee113/syntax-tree-surfer/pull/14)

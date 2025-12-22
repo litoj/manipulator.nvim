@@ -196,7 +196,7 @@ end
 
 ---@class manipulator.Region.jump.Opts
 ---@field end_? boolean if the cursor should jump to the end of the selection (applied only when not in visual mode already) (default: true)
----@field rangemod? false|fun(self:manipulator.Region):Range4 transform the range of the region before manipulation (default: trim whitespace)
+---@field rangemod? false|fun(self:manipulator.Region):Range4 transform the range of the region before manipulation (i.e. include comma after the text etc.) (default: trim whitespace)
 ---@field insert? boolean should we enter insert mode (default: false)
 
 --- Jump to the start (or end, if `opts.end_`) of the region.
@@ -337,7 +337,7 @@ end
 --- Swap two regions. (buffers can differ)
 --- Maintains cursor (and visual selection) on the region specified via `opts.cursor_with`.
 ---@param opts manipulator.Region.swap.Opts
-function Region:swap(opts)
+function Region:swap(opts) -- TODO: try to shrink code with M.from_text math
 	opts = self:action_opts(opts, 'swap')
 	local sbuf, srange = RANGE_UTILS.decompose(self, true)
 	local dbuf, drange = RANGE_UTILS.decompose(opts.dst, true)
@@ -540,7 +540,7 @@ function M.from_text(text, offset, ignore_eol)
 end
 
 ---@class manipulator.Region.module.current.Opts options for retrieving various kinds of user position
----@field mouse? boolean if the event is a mouse click
+---@field mouse? boolean if the event is a mouse click. NOTE: for position without click set 'mousemoveevent'
 ---@field visual? boolean|manipulator.VisualModeEnabler map of modes for which to return visual range, false to get a cursor/mouse only
 ---@field respect_linewise? boolean should the region be full lines when in 'V' mode (default: true)
 ---@field insert_fixer? string|false luapat to match the char under cursor to determine if c-1 column should be used when in 'i'/'s' mode
