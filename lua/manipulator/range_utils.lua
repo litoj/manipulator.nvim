@@ -233,7 +233,7 @@ do -- ### Current state helpers
 		local mode = vim.fn.mode()
 		if not v_modes[mode] then return end
 
-		local from, to = vim.fn.getpos 'v', vim.fn.getpos '.'
+		local from, to = vim.fn.getpos 'v', vim.fn.getpos '.' -- ignores linewise mode being whole lines
 		local leading = false
 		if from[2] > to[2] or (from[2] == to[2] and from[3] > to[3]) then -- [1]=bufnr
 			local tmp = to

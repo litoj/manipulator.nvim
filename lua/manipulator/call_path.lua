@@ -43,18 +43,25 @@ end
 ---@field anchor? string if the object is an anchor and not part an actual call
 
 ---@class manipulator.CallPath.Config
----@field immutable boolean if path additions produce new objects instead of updates
----@field exec_on_call boolean|integer if calls should be executed (at all) or executed with delay. Makes return value useless when running async and `.immutable=false`.
----@field allow_shorter_motion boolean should we use the last valid motion iteration or produce an error when the motion cannot be repeated anymore (reached end of document)
----@field allow_direct_calls boolean should arguments for direct calls on the wrapped object be executed or produce an error
----@field skip_anchors boolean should any anchored path be skipped or produce an error
+---@field immutable? boolean if path additions produce new objects instead of updates
+---@field exec_on_call? # NOTE: makes return value useless when running async and `immutable=false`
+---| number # in ms until actual execution - updates itself,
+---| false # to not execute until manual call of `:exec()` (the default),
+---| true # to `:exec()` calls immediately - returns a new wrapper.
+---@field allow_shorter_motion? boolean should we use the last valid motion iteration or produce an error when the motion cannot be repeated anymore (reached end of document)
+---@field allow_direct_calls? boolean should arguments for direct calls on the wrapped object be executed or produce an error
+---@field skip_anchors? boolean should any anchored path be skipped or produce an error
+---@field as_op? manipulator.CallPath.as_op.Opts
 
----@class manipulator.CallPath: manipulator.CallPath.Config
----@field public item any
----@field private path manipulator.CallPath.CallInfo[]
----@field private idx integer at which index do we write the path
+---@class manipulator.CallPath
+---@field item any
+---@field protected config manipulator.CallPath.Config
+---@field protected path manipulator.CallPath.CallInfo[]
+---@field protected idx integer at which index do we write the path
 ---@field private next_as_motion? manipulator.MotionOpt if the next index/call should be made a motion
 ---@field fn function ready-for-mapping function executing the constructed path
+---@field op_fn function shortcut for `self:as_op()`
+---@field opfunc function shortcut for `self:as_op()`
 local CallPath = {}
 
 ---@overload fun(...):manipulator.TSRegion
@@ -62,10 +69,6 @@ local CallPath = {}
 ---@overload fun(...):manipulator.Region
 ---@class manipulator.CallPath.Region: manipulator.CallPath,manipulator.Region,{[string]:manipulator.CallPath.Region|fun(...):manipulator.CallPath.Region}
 
----Field `.exec_on_call`:
---- - `number` in ms until actual execution - updates itself,
---- - `false` to not execute until manual call of `:exec()` (the default),
---- - `true` to `:exec()` calls immediately - returns a new wrapper.
 ---Building syntax:
 --- - `mcp.<key>:xyz(opts):exec()` -> `require'manipulator.<key>'.current():xyz(opts)`
 --- - `mcp.tsregion({v_partial=0}).select.fn()` -> `require'manipulator.tsregion'.current({v_partial=0}):select()`
@@ -92,8 +95,7 @@ M.default_config = {
 	allow_direct_calls = false,
 	skip_anchors = true,
 
-	-- Default object values that get copied when creating a new node
-	idx = 0, ---@private
+	as_op = { keep_visual = false, no_expr_opts = true },
 }
 
 ---@type manipulator.CallPath.Config
@@ -115,7 +117,7 @@ function CallPath:new(o)
 
 	-- copies the path contents, not the path obj itself -> modification-independent
 	-- relies on the CallInfo to be immutable
-	o = UTILS.tbl_inner_extend('keep', o, self.path and self or M.config, 1)
+	o = UTILS.tbl_inner_extend('keep', o, self.path and self or { config = M.config, idx = 0 }, 1)
 
 	return setmetatable(o, CallPath)
 end
@@ -137,9 +139,11 @@ function CallPath:__index(key)
 	if CallPath[key] then return CallPath[key] end
 	if key == 'fn' then -- allow delayed method call via static reference (inject self)
 		return function() return self:exec() end
+	elseif key == 'op_fn' or key == 'opfunc' then
+		return self:as_op()
 	end
 
-	if self.immutable then self = self:new() end
+	if self.config.immutable then self = self:new() end
 
 	local k1 = #key > 1 and key:sub(1, 1) or ''
 	if k1 == '&' then -- placeholder set (reference/ptr)
@@ -166,7 +170,6 @@ function CallPath:__index(key)
 	return self
 end
 
--- TODO: dot repeat
 --- Allow the next index (call) to be repeated `vim.v.count1`-times.
 --- NOTE: anchores are ignored -> if it is followed by an anchor and
 --- then an index that index will get marked as a motion.
@@ -175,17 +178,52 @@ end
 --- - `on_fail?` (`manipulator.MotionOpt`): if we should inform the user about failing to do enough
 ---   interations, or carry on (accepting the last good value or giving an error)
 function CallPath:next_with_count(on_fail)
-	if self.immutable then self = self:new() end
+	if self.config.immutable then self = self:new() end
 
-	self.next_as_motion = UTILS.with_default(on_fail, 'print') or 'ignore'
+	self.next_as_motion = UTILS.get_or(on_fail, 'print') or 'ignore'
 	return self
+end
+
+---@class manipulator.CallPath.as_op.Opts
+---@field keep_visual? boolean should visual mode be run normally, or as an operator (which would cause an exit from visual mode)
+---@field no_expr_opts? boolean if this will be mapped under normal mapping without `{expr=true}` - this makes the mapping functional in insert mode
+
+--- Create a keybind-ready function that acts as an operator executing the constructed path.
+--- Options allow to improve the handling in visual and insert modes and better UX.
+---@param opts? manipulator.CallPath.as_op.Opts
+---@return function
+function CallPath:as_op(opts)
+	opts = UTILS.tbl_inner_extend('keep', opts or {}, self.config.as_op or {})
+
+	return function()
+		local mode = vim.fn.mode()
+		if opts.keep_visual and (mode == 'v' or mode == 'V' or mode == '\022') then return self:exec() end
+
+		_G.opfunc = function(opmode)
+			vim.g.manip_opmode = opmode
+			self:exec()
+			vim.g.manip_opmode = nil
+			_G.opfunc = nil
+		end
+		vim.go.operatorfunc = [[v:lua.opfunc]]
+
+		if opts.no_expr_opts then
+			vim.api.nvim_feedkeys(
+				vim.mode == 'n' and 'g@' or vim.api.nvim_replace_termcodes('<C-o>g@', true, true, true),
+				'n',
+				false
+			)
+		else
+			return 'g@'
+		end
+	end
 end
 
 ---@private
 function CallPath:__call(a1, ...)
 	local args = a1 and (getmetatable(a1) == CallPath) and { ... } or { a1, ... }
 
-	if self.immutable then self = self:new() end
+	if self.config.immutable then self = self:new() end
 
 	local call = self.path[self.idx]
 
@@ -197,11 +235,11 @@ function CallPath:__call(a1, ...)
 		self:_add_to_path { args = args }
 	end
 
-	if self.exec_on_call then -- check autoexec settings
-		if self.exec_on_call == true then
+	if self.config.exec_on_call then -- check autoexec settings
+		if self.config.exec_on_call == true then
 			self:exec(true)
 		else
-			vim.defer_fn(function() self:exec(true) end, self.exec_on_call)
+			vim.defer_fn(function() self:exec(true) end, self.config.exec_on_call)
 		end
 	end
 
@@ -234,11 +272,11 @@ function CallPath:_exec(inplace)
 	for _, call in ipairs(self.path) do
 		if not rawget(call, 'field') then -- raw to skip anchor metatables
 			if rawget(call, 'args') then -- call the object directly
-				if not self.allow_direct_calls then
+				if not self.config.allow_direct_calls then
 					error('CallPath direct calls are not allowed: ' .. vim.inspect(self.path))
 				end
 				item = item(unpack(call.args))
-			elseif not self.skip_anchors then
+			elseif not self.config.skip_anchors then
 				error('CallPath anchor skipping not allowed: ' .. vim.inspect(self.path))
 			end
 		else
@@ -260,7 +298,7 @@ function CallPath:_exec(inplace)
 					else
 						if call.as_motion == 'print' then vim.notify('Got to count: ' .. len, vim.log.levels.INFO) end
 
-						if self.allow_shorter_motion and len > 0 then
+						if self.config.allow_shorter_motion and len > 0 then
 							item = batch:at(-1)
 						else
 							if call.as_motion == 'print' then break end

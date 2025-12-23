@@ -8,8 +8,8 @@ local NVIM_TS_UTILS = require 'nvim-treesitter.ts_utils'
 local Batch = require 'manipulator.batch'
 
 ---@class manipulator.TSRegion: manipulator.Region
----@field public node TSNode
----@field public ltree vim.treesitter.LanguageTree
+---@field node TSNode
+---@field ltree vim.treesitter.LanguageTree
 ---@field protected config manipulator.TSRegion.Config
 local TSRegion = setmetatable({ super = Region.class }, Region.class) -- allowing for user extensions
 TSRegion.__index = TSRegion
@@ -78,8 +78,10 @@ M.default_config = {
 	},
 
 	sibling = { types = { inherit = true, comment = false } },
-	next = { allow_child = true },
+	next = { allow_child = true, start_point = 'cursor' },
 	prev = {},
+
+	current = { ignore_linewise = true, on_partial = 'larger' },
 
 	nil_wrap = true,
 	inherit = false,
@@ -88,7 +90,7 @@ M.default_config = {
 	presets = {
 		-- ### General use presets
 		path = { -- configured for selecting individual fields in a path to an attribute (A.b.c.d=2)
-			in_graph = { max_link_dst = 3, max_ascend = 2, max_descend = 1, langs = { inherit = true, luadoc = false } },
+			in_graph = { max_link_dst = 4, max_ascend = 3, max_descend = 1, langs = { inherit = true, luadoc = false } },
 			next = { allow_child = false },
 			prev = { compare_end = true },
 		},
@@ -293,25 +295,6 @@ end
 ---@field range Range4 0-indexed range: {start_row, start_col, end_row, end_col}
 ---@field persistent? boolean should opts be saved as the default for the node (default: false)
 
---- Get a node spanning given range.
----@param opts manipulator.TSRegion.module.get.Opts
----@return manipulator.TSRegion?
-function M.get(opts)
-	opts = M:action_opts(opts, 'get')
-
-	local ltree = vim.treesitter.get_parser(opts.buf or 0)
-	opts.buf = nil
-	if not ltree then return TSRegion:new(opts) end
-	local range = opts.range
-	range[4] = range[4] + 1
-	opts.range = nil
-	-- slow, but we have no other way to get the language info (and ltree) the node is in
-	if opts.langs then ltree = ltree:language_for_range(range) end
-
-	local ret = TSRegion:new(opts, ltree:named_node_for_range(range), ltree)
-	return ret and opts.persistent and ret:with(opts, true) or ret
-end
-
 --- Get all matching nodes spanning the entire buffer.
 ---@param opts manipulator.TSRegion.module.get.Opts|{range?:nil} GetOpts, but range is ignored
 ---@return manipulator.Batch
@@ -350,34 +333,50 @@ function M.get_all(opts)
 	return Batch:new(nil, nodes, opts.nil_wrap and TSRegion.Nil)
 end
 
+--- Get a node covering given range.
+---@param opts manipulator.TSRegion.module.get.Opts
+---@return manipulator.TSRegion?
+function M.get(opts)
+	opts = M:action_opts(opts, 'get')
+
+	local ltree = vim.treesitter.get_parser(opts.buf or 0)
+	opts.buf = nil
+	if not ltree then return TSRegion:new(opts) end
+	local range = opts.range
+	range[4] = range[4] + 1
+	opts.range = nil
+	-- slow, but we have no other way to get the language info (and ltree) the node is in
+	if opts.langs then ltree = ltree:language_for_range(range) end
+
+	local ret = TSRegion:new(opts, ltree:named_node_for_range(range), ltree)
+	return ret and opts.persistent and ret:with(opts, true) or ret
+end
+
 ---@class manipulator.TSRegion.module.current.Opts: manipulator.TSRegion.module.get.Opts,manipulator.Region.module.current.Opts
----@field v_partial? integer >0 allows node larger than visual selection, 0 falls back to cursor, <0 nil (default: 1)
----@field range? nil
+---@field on_partial? 'larger'|'cursor'|'nil' when visual selection doesn't cover the node fully, what node should we return (default: 'larger')
+---@field range? nil ignored
 
 ---@param opts? manipulator.TSRegion.module.current.Opts persistent by default
----   - `respect_linewise`: compared to `Region.current()` here defaults to `false`
 ---@return manipulator.TSRegion?
 function M.current(opts)
 	opts = M:action_opts(opts, 'current')
 
-	if opts.respect_linewise == nil then opts.respect_linewise = false end
 	local region, visual = Region.current(opts)
 	opts.range = region:range0()
 
 	local ret = M.get(opts) -- get the primary chosen node
 	if not ret or not ret.node then return ret end
 
-	local v_partial = opts.v_partial or 1
 	-- if selection is smaller than the chosen node decide what to do
-	if v_partial <= 0 and visual and RANGE_UTILS.rangeContains(ret:range0(), region:range0()) > 0 then
-		if v_partial == 0 then -- fall back to node under cursor
+	if visual and opts.on_partial ~= 'larger' and RANGE_UTILS.rangeContains(ret:range0(), region:range0()) > 0 then
+		if opts.on_partial == 'cursor' then -- fall back to node under cursor
 			---@diagnostic disable-next-line: cast-local-type
-			region = RANGE_UTILS.current_point(opts.mouse, opts.insert_fixer)
+			region = RANGE_UTILS.current_point(false, opts.insert_fixer)
 			opts.range = region.range
 			opts.buf = region.buf
 			ret = M.get(opts)
 			opts.buf = nil
-		else -- no fallback allowed -> return nil node
+		else -- partial == 'nil' - no fallback allowed
 			ret = TSRegion:new(opts)
 		end
 	end

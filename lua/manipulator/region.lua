@@ -39,7 +39,7 @@ M.default_config = { inherit = false, presets = {} }
 ---@type manipulator.Region.module.Config
 M.config = M.default_config
 ---@param config manipulator.Region.module.Config
-function M.setup(config)
+function M.setup(config) -- TODO: put config into Region -||-TSRegion to simplify new() inheritance
 	M.config = UTILS.module_setup(M.config.presets, M.default_config, config, Region.opt_inheritance)
 	return M
 end
@@ -168,13 +168,22 @@ do
 	local hl_ns = vim.api.nvim_create_namespace 'manipulator_hl'
 
 	--- Highlight or remove highlighting from given range (run on NilRegion to clear the whole buffer)
-	---@param group? string|integer|false highlight group name or ID of the mark to clear (default: 'IncSearch')
+	---@param group? string|integer|false highlight group to highlight with or ID of the mark to clear (default: toggles clear and add)
 	---@return integer? # id of the created extmark
 	function Region:highlight(group)
 		local buf, range = RANGE_UTILS.decompose(self)
 		if not group or type(group) == 'number' then
-			vim.api.nvim_buf_del_extmark(buf, hl_ns, group or self.hl_id)
-			return
+			local id = group or self.hl_id
+			if not id then
+				local r = self:range0() ---@type table
+				r = vim.api.nvim_buf_get_extmarks(buf, hl_ns, { r[1], r[2] }, { r[3], r[4] }, {})[1]
+				if r then id = r[1] end
+			end
+
+			if id then
+				vim.api.nvim_buf_del_extmark(buf, hl_ns, id)
+				return
+			end
 		elseif not range[1] then
 			vim.notify('Cannot highlight Nil', vim.log.levels.INFO)
 			return
@@ -205,11 +214,8 @@ function Region:jump(opts)
 	opts = self:action_opts(opts, 'jump')
 	local r = opts.rangemod == false and self:range0() or (opts.rangemod or RANGE_UTILS.get_trimmed_range)(self)
 
-	RANGE_UTILS.jump(
-		{ buf = self.buf, range = not opts.end_ and { r[1], r[2] } or { r[3], r[4] } },
-		opts.end_,
-		opts.insert
-	)
+	r = not opts.end_ and { r[1], r[2] } or { r[3], r[4] }
+	RANGE_UTILS.jump({ buf = self.buf, range = r }, opts.end_, opts.insert)
 end
 
 ---@class manipulator.Region.select.Opts: manipulator.Region.jump.Opts
@@ -264,7 +270,7 @@ function Region:select(opts)
 	vim.api.nvim_win_set_cursor(0, { r[1] + 1, r[2] })
 	vim.cmd.normal 'o'
 	vim.api.nvim_win_set_cursor(0, { r[3] + 1, r[4] })
-	if leading or (not visual and opts.end_ == false) then vim.cmd.normal 'o' end
+	if opts.end_ == false or leading then vim.cmd.normal 'o' end
 end
 
 ---@class manipulator.Region.paste.Opts
@@ -540,24 +546,43 @@ function M.from_text(text, offset, ignore_eol)
 end
 
 ---@class manipulator.Region.module.current.Opts options for retrieving various kinds of user position
----@field mouse? boolean if the event is a mouse click. NOTE: for position without click set 'mousemoveevent'
----@field visual? boolean|manipulator.VisualModeEnabler map of modes for which to return visual range, false to get a cursor/mouse only
----@field respect_linewise? boolean should the region be full lines when in 'V' mode (default: true)
+---@field mode? # where to source the position / range from
+---| true|manipulator.VisualModeEnabler # map of modes for which to return visual range, fallback to cursor (default)
+---| 'cursor' # cursor position
+---| 'mouse' # use mouse click, or hover / current pos (for a kbd bind) when 'mousemoveevent' is enabled
+---| 'operator' # behave like an operator - get the result of the last motion; provide mode info with `vim.g.manip_opmode`
+---@field ignore_linewise? boolean should the region for 'V' be the cursor positions or full lines
 ---@field insert_fixer? string|false luapat to match the char under cursor to determine if c-1 column should be used when in 'i'/'s' mode
 
 --- Get mouse click position or currently selected region and cursor position
 ---@param opts? manipulator.Region.module.current.Opts use {} for disabling visual mode
 ---@return manipulator.Region # object of the selected region (point or range)
----@return boolean is_visual true if the range is from visual mode
+---@return boolean? is_visual true if the range is from visual mode or `mode='operator'`
+--- - can return false while user is in visual mode
 function M.current(opts)
 	opts = M:action_opts(opts, 'current')
 
-	local range = opts.visual ~= false and RANGE_UTILS.current_visual(opts.visual, opts.insert_fixer)
-	if range and vim.fn.mode() == 'V' and opts.respect_linewise ~= false then
-		range[2] = 0
-		range[4] = #vim.api.nvim_buf_get_lines(0, range[3], range[3] + 1, true)[1] - 1
+	if opts.mode == 'mouse' or opts.mode == 'cursor' then
+		return M.from(RANGE_UTILS.current_point(opts.mode == 'mouse', opts.insert_fixer))
+	elseif opts.mode == 'operator' or (not opts.mode and vim.g.manip_opmode) then
+		local s, e = vim.api.nvim_buf_get_mark(0, '['), vim.api.nvim_buf_get_mark(0, ']')
+		local r = { s[1] - 1, s[2], e[1] - 1, e[2] }
+
+		if vim.g.manip_opmode == 'linewise' and not opts.ignore_linewise then
+			r[2] = 0
+			r[4] = #vim.api.nvim_buf_get_lines(0, r[3], r[3] + 1, true)[1] - 1
+		end
+
+		return M.from(r), true
 	end
-	return M.from(range or RANGE_UTILS.current_point(opts.mouse, opts.insert_fixer)), not not range
+
+	local r = RANGE_UTILS.current_visual(opts.mode, opts.insert_fixer)
+
+	if r and vim.fn.mode() == 'V' and not opts.ignore_linewise then
+		r[2] = 0
+		r[4] = #vim.api.nvim_buf_get_lines(0, r[3], r[3] + 1, true)[1] - 1
+	end
+	return M.from(r or RANGE_UTILS.current_point(false, opts.insert_fixer)), not not r
 end
 
 return M

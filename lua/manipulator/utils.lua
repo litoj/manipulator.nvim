@@ -84,7 +84,7 @@ do -- ### module helpers
 	end
 end
 
-function M.with_default(val, default)
+function M.get_or(val, default)
 	if val == nil then return default end
 	return val
 end
@@ -196,12 +196,12 @@ do -- ### config inheritance/extension helpers
 			last = preset
 
 			config.inherit = nil -- allow preset to set its own inheritance object
-			M.tbl_inner_extend('keep', config, preset)
+			M.tbl_inner_extend('keep', config, preset) -- FIXME: copies action tables that might get changed and hence may change the default preset
 		end
 
 		for key, is_action in pairs(key_inheritance) do
 			local val = config[key]
-			preset = type(val) == 'table' and M.with_default(rawget(val, 'inherit'), is_action) ---@type string|table?
+			preset = type(val) == 'table' and M.get_or(rawget(val, 'inherit'), is_action) ---@type string|table?
 			if preset then -- TODO: should not expand all actions when expanding the config into user's opts
 				last = nil
 				while preset do -- rawget to not trigger enablers
@@ -214,7 +214,7 @@ do -- ### config inheritance/extension helpers
 
 					val.inherit = nil
 					if preset[key] then M.tbl_inner_extend('keep', val, preset[key]) end
-					preset = M.with_default(rawget(val, 'inherit'), is_action)
+					preset = M.get_or(rawget(val, 'inherit'), is_action)
 				end
 			end
 		end

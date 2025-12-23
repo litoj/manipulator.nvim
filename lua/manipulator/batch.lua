@@ -3,7 +3,7 @@ local UTILS = require 'manipulator.utils'
 local RANGE_UTILS = require 'manipulator.range_utils'
 
 ---@class manipulator.Batch
----@field private items manipulator.Region[]
+---@field items manipulator.Region[]
 ---@field private Nil manipulator.Region|false what to return, if no items are valid/chosen
 ---@field private config manipulator.Batch.Config
 local Batch = {}
