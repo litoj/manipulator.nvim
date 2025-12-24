@@ -99,6 +99,8 @@ function Region:apply(fun) return fun(self) end
 ---@protected
 function Region:__tostring() return self:get_lines(true)[1] or 'NilRegion' end
 
+function Region:print() print(tostring(self)) end
+
 ---@return Range4 0-indexed range
 function Region:range0()
 	local range = self[1] and self or self.range
@@ -346,13 +348,13 @@ end
 ---@class manipulator.Region.swap.Opts
 ---@field dst manipulator.RangeType direct destination to move to
 ---@field cursor_with? # which object should the cursor end up at
----| 'auto' moves with the current or `false` if the cursor is outside both objects
----| 'dst'|'src' move with the said object
----| false keep the cursor inplace (default)
+---| 'current' track object under cursor (default)
+---| 'dst'
+---| 'src' move with the said object
+---| false let the weird mangling begin
 ---@field visual? boolean|manipulator.VisualModeEnabler which visual modes can be updated (use `{}` to disable) (default: true=all)
 
 -- TODO: try to shrink code with M.from_text math
--- TODO: visual reselection overrides dotrepeat of the swap
 --- Swap two regions. (buffers can differ)
 --- Maintains cursor (and visual selection) on the region specified via `opts.cursor_with`.
 ---@param opts manipulator.Region.swap.Opts
@@ -366,8 +368,8 @@ function Region:swap(opts)
 	end
 
 	-- Calculate relative cursor positions to the colser of the regions or fallback start-to-end
-	local c_with = opts.cursor_with
-	if c_with == 'auto' then
+	local c_with = opts.cursor_with or 'current'
+	if c_with == 'current' then
 		local c = vim.api.nvim_win_get_cursor(0)
 		c[1] = c[1] - 1
 		c_with = RANGE_UTILS.posInRange(srange, c, true) and 'src'
@@ -469,9 +471,9 @@ do
 	---@class manipulator.Region.queue_or_swap.Opts: manipulator.Region.swap.Opts
 	---@field group? string used as a key to allow multiple pending moves
 	---@field highlight? string|false highlight group to use, suggested to specify with custom {group} (default: 'IncSearch')
-	---@field allow_grow? boolean if selected region can be updated to the current when its fully contained or should be deselected (default: false)
-	---@field run_on_queued? boolean should the action be run on the queued node or on the pairing one (default: false)
-	---@field action? 'swap'|'paste' which action to run on the pairing node
+	---@field allow_grow? boolean if selected region can be updated to the current when its fully contained or should be deselected
+	---@field run_on_queued? boolean should the action be run on the queued node or on the pairing one
+	---@field dst? nil
 
 	--- Move the node to a given position
 	---@param opts? manipulator.Region.queue_or_swap.Opts included action options used only on run call
@@ -526,22 +528,22 @@ end
 do -- ### Wrapper for nil matches
 	---@class manipulator.Region.Nil: manipulator.Region
 	local NilRegion = { config = { inherit = false, presets = {} } }
-	function NilRegion:clone() return self end -- nil is only one
-	NilRegion.with = NilRegion.clone
-	NilRegion.paste = NilRegion.clone
 	function NilRegion:__tostring() return 'Nil' end
 	-- allow queue_or_run() to deselect the group and collect() to return an empty Batch
 	local passthrough = {
-		Nil = true,
+		print = true,
 		opt_inheritance = true,
 		action_opts = true,
 		highlight = true,
 		collect = true,
-		queue_or_run = true,
+		queue_or_swap = true,
 	}
 	function NilRegion:__index(key)
-		if passthrough[key] then return Region[key] end
-		return function() vim.notify('Cannot ' .. key .. ' Nil') end
+		if passthrough[key] or type(Region[key]) ~= 'function' then return Region[key] end
+		return function()
+			vim.notify('Cannot ' .. key .. ' Nil')
+			return self
+		end
 	end
 
 	---@protected
@@ -573,7 +575,7 @@ end
 ---| 'cursor' # cursor position
 ---| 'mouse' # use mouse click, or hover / current pos (for a kbd bind) when 'mousemoveevent' is enabled
 ---| 'operator' # behave like an operator - get the result of the last motion; provide mode info with `vim.g.manip_opmode`
----| "'x"|string # to use the position of the mark `x`
+---| string|"'x" # to use the position of the mark `x`
 ---@field linewise?
 ---| 'extend' # when in 'V' mode extend the cursor range to full lines (default)
 ---| 'ignore' # when in 'V' mode behave like in 'v' mode - cut the range to the cursor bounds

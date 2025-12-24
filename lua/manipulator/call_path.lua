@@ -59,7 +59,7 @@ end
 ---@field private next_as_motion? manipulator.MotionOpt if the next index/call should be made a motion
 ---@field fn function ready-for-mapping function executing the constructed path
 ---@field op_fn function shortcut for `self:as_op()`
----@field opfunc function shortcut for `self:as_op()`
+---@field dot_fn function shortcut for `self:as_op({dot_repeat_only=true})`
 local CallPath = {}
 
 ---@overload fun(...):manipulator.TSRegion
@@ -95,7 +95,7 @@ M.default_config = {
 		allow_field_access = false,
 		skip_anchors = true,
 	},
-	as_op = { keep_visual = false, no_expr_opts = true },
+	as_op = { keep_visual = false, return_expr = false },
 }
 
 ---@type manipulator.CallPath.Config
@@ -152,8 +152,10 @@ function CallPath:__index(key)
 	if CallPath[key] then return CallPath[key] end
 	if key == 'fn' then -- allow delayed method call via static reference (inject self)
 		return function() return self:exec() end
-	elseif key == 'op_fn' or key == 'opfunc' then
+	elseif key == 'op_fn' then
 		return self:as_op()
+	elseif key == 'dot_fn' then
+		return self:as_op { dot_repeat_only = true }
 	end
 
 	if self.config.immutable then self = self:new() end
@@ -220,7 +222,7 @@ end
 ---@param self `P`
 ---@param target manipulator.Batch.Action|'on_next' what to apply the count onto
 ---@param on_fail? manipulator.MotionOpt if we should inform the user about failing to do enough
----   interations, or carry on (accepting the last good value or giving an error) (default: 'ignore')
+---   interations, or carry on (accepting the last good value or giving an error) (default: 'print')
 ---@return `P` self copy ]]
 function CallPath:with_count(target, on_fail)
 	if self.config.immutable then self = self:new() end
@@ -238,10 +240,12 @@ end
 
 ---@class manipulator.CallPath.as_op.Opts
 ---@field keep_visual? boolean should visual mode be run normally, or as an operator (which would cause an exit from visual mode)
----@field no_expr_opts? boolean if this will be mapped under normal mapping without `{expr=true}` - this makes the mapping functional in insert mode
+---@field return_expr? boolean if we should return the 'g@' or will this be mapped without `{expr=true}` (adapted for insert mode either way)
+---@field dot_repeat_only? boolean if the purpose is only for a dot-repeatable mapping (-> self-initiate) or an actual operator
+--- - invokes itself to
 
 --- Create a keybind-ready function that acts as an operator executing the constructed path.
---- Options allow to improve the handling in visual and insert modes and better UX.
+--- Options improve the handling in visual modes and better UX during mapping. Works in insert mode.
 ---@param opts? manipulator.CallPath.as_op.Opts
 ---@return function
 function CallPath:as_op(opts)
@@ -249,25 +253,25 @@ function CallPath:as_op(opts)
 
 	return function()
 		local mode = vim.fn.mode()
-		if opts.keep_visual and (mode == 'v' or mode == 'V' or mode == '\022') then return self:exec() end
+		local keys
+		if mode == 'v' or mode == 'V' or mode == '\022' then
+			if opts.keep_visual then return self:exec() end
 
-		_G.opfunc = function(opmode)
-			vim.g.manip_opmode = opmode
+			keys = 'g@'
+		else
+			keys = opts.dot_repeat_only and 'g@l' or 'g@'
+		end
+
+		M.opfunc = function(opmode)
+			if keys == 'g@' then vim.g.manip_opmode = opmode end
 			self:exec()
 			vim.g.manip_opmode = nil
-			_G.opfunc = nil
 		end
-		vim.go.operatorfunc = [[v:lua.opfunc]]
+		vim.go.operatorfunc = [[v:lua.require'manipulator.call_path'.opfunc]]
 
-		if opts.no_expr_opts then
-			vim.api.nvim_feedkeys(
-				vim.mode == 'n' and 'g@' or vim.api.nvim_replace_termcodes('<C-o>g@', true, true, true),
-				'n',
-				false
-			)
-		else
-			return 'g@'
-		end
+		if mode == 'i' then keys = vim.api.nvim_replace_termcodes('<C-o>', true, true, true) .. keys end
+		if opts.return_expr then return keys end
+		vim.api.nvim_feedkeys(keys, 'n', false)
 	end
 end
 
@@ -278,7 +282,7 @@ end
 ---@field skip_anchors? boolean should any anchored path be skipped or produce an error
 ---@field src? # modifications to the object to run the path on (default: self.item)
 ---| 'update' # the result should replace the object, reseting the path to {}
----| table|userdata # run the path on the given object
+---| table # run the path on the given object
 
 ---@param opts? manipulator.CallPath.exec.Opts
 ---@return any

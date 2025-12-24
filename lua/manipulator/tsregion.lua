@@ -293,10 +293,10 @@ do -- ### Wrapper for nil TSNode matches
 	local nil_fn = function(self) return self end
 	local nr_index = Region.class.Nil.__index
 
-	local pass_through = { Nil = true, opt_inheritance = true, action_opts = true }
+	local passthrough = { opt_inheritance = true, action_opts = true }
 	function Region.class.Nil:__index(key)
 		if rawget(TSRegion, key) then
-			if pass_through[key] then return TSRegion[key] end
+			if passthrough[key] or type(rawget(TSRegion, key)) ~= 'function' then return TSRegion[key] end
 			return nil_fn
 		end
 		return nr_index(self, key)

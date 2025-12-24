@@ -1,10 +1,10 @@
 ---@diagnostic disable: redefined-local
 
 ---@class manipulator
----@field batch manipulator.Batch
----@field call_path manipulator.CallPath
----@field region manipulator.Region
----@field tsregion manipulator.TSRegion
+---@field batch manipulator.Batch.module
+---@field call_path manipulator.CallPath.module
+---@field region manipulator.Region.module
+---@field tsregion manipulator.TSRegion.module
 local M = {}
 
 ---@class manipulator.Config

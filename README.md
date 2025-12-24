@@ -2,30 +2,32 @@
 
 ## Features
 
-- text ops: jump, select, move/paste, …, quickfix, mark, highlight
-- treesitter full traversal including injected languages
-  - filtering by node type and lang
-- position sources: cursor, selection, mouse click/move (via `vim.g.mousemoveevent`)
+- `Region`:
+  - text ops: jump, select, move/paste, …, quickfix, mark, highlight
+  - position sources: cursor, visual, mouse (move via `vim.g.mousemoveevent`), operator
+- `TSRegion`: treesitter full traversal including injected languages
+  - filtering by node type & lang
+- `CallPath`: flexible & reusable keymapping function builder
 - vim motion support (`5j`…) (via `CallPath:with_count`)
-- dot repeat / operator mode (via `CallPath:as_op`)
+- dot repeat + operator mode (via `CallPath:as_op`)
 - `Batch`: collecting and selecting (native or `fzf`) found matches
 - extensive behaviour configuration with clever preset inheriting
-- `CallPath`: flexible & reusable keymapping function builder
 - extensive docs right in the code for all settings and methods
 
 ## TODOS
 
 - update docs & license, separate repo from the original but include references
   - make features into ### headings
-  - add example under each feature, provide settings
+  - add example under each feature, provide settings, videos, inspire from sts
   - TOC up top
+  - chapter about how to actually create mappings / module layout and meaning / design
 - add info/gtdefinition for types in info windows - _belongs to reform.nvim_
 - matching by query syntax and catching into groups
 - add selection modification/filter (include trailing comma etc.)
   - possible, but currently no predefined list of filters, could use presets to add them
 - examples of operators (snf = select next function, gnn = jump next node)...
   - either callpath extension or type presets (f/a/s/c/l…) for the letters
-- refactor swap to allow swapping parent and child (conditionals)
+- refactor swap to allow swapping parent and child (i.e. conditionals)
 
 ### Syntax Tree Surfer is a plugin for Neovim that helps you surf through your document and move elements around using the nvim-treesitter API.
 
@@ -38,16 +40,6 @@
 1. [Version 1.1 Update](#version-11-update)
 1. [Version 2.0 Beta Update](#version-20-beta-update)
 1. [Version 2.2 Update](#version-22-update)
-
-# Version 1.0 Functionalities
-
-### **Swap in Normal Mode** - Now supports Dot (.) Repeat
-
-https://user-images.githubusercontent.com/102876811/174811583-52b7beb0-853f-4ac9-9498-eb718ce626d9.mp4
-
-<!-- https://user-images.githubusercontent.com/102876811/163173466-b4bfd70f-c239-4e9c-a7ae-c540c093e0f4.mp4 -->
-
-# How do I install?
 
 #### Use your favorite Plugin Manager with the link [ziontee113/syntax-tree-surfer](ziontee113/syntax-tree-surfer)
 
@@ -106,26 +98,6 @@ vim.keymap.set("x", "L", '<cmd>STSSelectChildNode<cr>', opts)
 vim.keymap.set("x", "<A-j>", '<cmd>STSSwapNextVisual<cr>', opts)
 vim.keymap.set("x", "<A-k>", '<cmd>STSSwapPrevVisual<cr>', opts)
 ```
-
-# Now let's start Tree Surfing! 🌲💦
-
-### Version 1.1 update
-
-This feature will help you save some keystrokes & brain power when you want to create some code at
-the top level node of your current cursor position.
-
-```lua
-lua require("syntax-tree-surfer").go_to_top_node_and_execute_commands(false, { "normal! O", "normal! O", "startinsert" })<cr>
-```
-
-The .go_to_top_node_and_execute_commands() method takes 2 arguments:
-
-1. boolean: if false then it will jump to the beginning of the node, if true it jumps to the end.
-
-1. lua table: a table that contains strings, each string is a vim command example: { "normal! O",
-   "normal! O", "startinsert" }
-
----
 
 # Version 2.0 Beta Update
 
