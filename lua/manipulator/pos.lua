@@ -114,7 +114,7 @@ do -- ### Getters / Actions
 		vim.api.nvim_win_set_cursor(0, { p[1] + 1, p[2] })
 	end
 
-	---@param p pos_src
+	---@param p pos_src this field is required!
 	---@param fallback? integer should be provided if pos_expr points to a mark
 	---@return integer
 	function Pos.to_byte(p, fallback)

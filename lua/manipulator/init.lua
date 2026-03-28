@@ -92,6 +92,7 @@ M.default_config = {
 		},
 		nil_wrap = true, -- TODO: move this option to Region
 
+		field = { types = { ['*'] = true } }, -- by default disable type filtering on field access
 		sibling = { types = { inherit = true, comment = false } },
 		next = { allow_child = true, start_point = '.' },
 		prev = {},

@@ -95,6 +95,30 @@ function M.get_identical_ancestor(opts, node, ltree, return_parent)
 	return return_node, return_parent and ltree or otree
 end
 
+-- sift through identically-sized nodes until a new range
+---@type fun(opts:manipulator.TS.Opts, node:TSNode, ltree:vim.treesitter.LanguageTree): TSNode,vim.treesitter.LanguageTree
+function M.get_identical_descendant(opts, node, ltree)
+	local child = node
+	while child:named_child_count() <= 1 do
+		node = child
+		child, ltree = M.get_child(opts, node, ltree, 0)
+		if not child or not Range.__eq({ node:range() }, { child:range() }) then break end
+	end
+	return node, ltree
+end
+
+-- sift through identically-sized nodes until a valid type, current node included
+---@type fun(opts:manipulator.TS.Opts, node:TSNode, ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
+function M.get_identical_valid_descendant(opts, node, ltree)
+	local child
+	while not opts.types[node:type()] do
+		child, ltree = M.get_child(opts, node, ltree, 0)
+		if not child or not Range.__eq({ node:range() }, { child:range() }) then return end
+		node = child
+	end
+	return node, ltree
+end
+
 ---@type fun(opts:manipulator.TS.Opts, node:TSNode, ltree:vim.treesitter.LanguageTree,
 ---idx:0|-1): (TSNode?,vim.treesitter.LanguageTree?)
 function M.get_child(opts, node, ltree, idx)
@@ -122,34 +146,12 @@ function M.get_child(opts, node, ltree, idx)
 	end
 end
 
--- sift through identically-sized nodes until a new range
----@type fun(opts:manipulator.TS.Opts, node:TSNode, ltree:vim.treesitter.LanguageTree): TSNode,vim.treesitter.LanguageTree
-function M.get_identical_descendant(opts, node, ltree)
-	local child = node
-	while child:named_child_count() <= 1 do
-		node = child
-		child, ltree = M.get_child(opts, node, ltree, 0)
-		if not child or not Range.__eq({ node:range() }, { child:range() }) then break end
-	end
-	return node, ltree
-end
-
--- sift through identically-sized nodes until a valid type, current node included
----@type fun(opts:manipulator.TS.Opts, node:TSNode, ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
-function M.get_identical_valid_descendant(opts, node, ltree)
-	local child
-	while not opts.types[node:type()] do
-		child, ltree = M.get_child(opts, node, ltree, 0)
-		if not child or not Range.__eq({ node:range() }, { child:range() }) then return end
-		node = child
-	end
-	return node, ltree
-end
-
 --- Traverse the graph left or right of the current node with the given restraints.
 --- NOTE: when using `.query` only comparison options work, not restrictions (`max_...`)
 ---@class manipulator.TS.GraphOpts: manipulator.TS.QueryOpts
----@field max_descend? integer|false how many lower levels to scan for a result (not necessarily direct child)
+--- how many lower levels to scan for a result (not necessarily direct child)
+--- `false` for unlimited descend (false as in _disable the limiter_)
+---@field max_descend? integer|false
 ---@field max_ascend? integer|false the furthest parent to consider returning
 ---@field max_link_dst? integer|false how far from the original can the common ancestor be (<= `max_ascend`)
 ---@field allow_child? boolean if children of the current node can be returned (NOTE: forced `false` for prev)
@@ -176,7 +178,10 @@ function M.search_in_graph(direction, opts, node, ltree)
 	end
 
 	if direction == 'prev' then
-		local base_point = math.min(select(3, node:start()), Range.to_byte(opts.start_point, vim.v.maxcol))
+		local base_point = math.min(
+			select(3, node:start()),
+			opts.start_point and Range.to_byte(opts.start_point, vim.v.maxcol) or vim.v.maxcol
+		)
 		ok_range = function(node) return select(3, cmp_fn(node)) < base_point end
 
 		if opts.query then
@@ -190,10 +195,12 @@ function M.search_in_graph(direction, opts, node, ltree)
 
 			if tmp then
 				tmp_tree = ltree
+				depth = depth - 1
 				while tmp do
+					depth = depth + 1
 					node, ltree = tmp, tmp_tree
 					if depth == max_depth then break end
-					depth = depth + 1
+
 					tmp, tmp_tree = M.get_child(opts, node, ltree, -1)
 				end
 			elseif depth > min_shared then
@@ -206,7 +213,8 @@ function M.search_in_graph(direction, opts, node, ltree)
 	else -- direction == 'next'
 		local base_point = math.max(
 			opts.allow_child and select(3, node:start()) or select(3, node:end_()),
-			Range.to_byte(opts.start_point, -1)
+			-- TODO: technically there probably should be a -1 for cmp_end
+			opts.start_point and Range.to_byte(opts.start_point, -1) or -1
 		)
 		ok_range = function(node) return select(3, cmp_fn(node)) > base_point end
 
@@ -217,7 +225,6 @@ function M.search_in_graph(direction, opts, node, ltree)
 
 		while continue() do
 			if depth < max_depth then
-				depth = depth + 1
 				tmp, tmp_tree = M.get_child(opts, node, ltree, 0)
 			else
 				tmp = nil
@@ -225,6 +232,7 @@ function M.search_in_graph(direction, opts, node, ltree)
 
 			if tmp then
 				ltree = tmp_tree
+				depth = depth + 1
 			else
 				while node and not tmp and depth >= min_shared do
 					tmp = node:next_named_sibling()

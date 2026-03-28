@@ -48,6 +48,8 @@ TS.__index = TS
 TS.action_map = U.tbl_inner_extend('keep', Region.action_map, {
 	parent = true,
 	child = true,
+	field = true,
+	descendant = true,
 	sibling = true,
 	next_sibling = 'sibling',
 	prev_sibling = 'sibling',
@@ -200,16 +202,29 @@ function TS:parent(opts)
 	return self:new(node, ltree, opts), ltree ~= self.ltree
 end
 
---- Get a descendant from somewhere in the subtree.
---- Shortcut for calling TS.get(node:range(), opts)
----@param opts? manipulator.TS.QueryOpts|string
-function TS:descendant(opts) return M.get(self:range(), opts) end
+--- Get a node by the field on this node.
+---@param name string name of the field to get
+---@param opts? manipulator.TS.Opts|string #
+---@return manipulator.TS? node from the given direction
+---@return boolean? changed_lang true if {node} is from a different language tree
+function TS:field(name, opts)
+	opts = self:action_opts(opts, 'field')
+	local node, ltree = TU.get_identical_descendant(opts, self.node, self.ltree)
+	node = node:field(name)[1]
+
+	if node then
+		node, ltree = TU.get_identical_valid_descendant(opts, node, ltree)
+	end
+
+	return self:new(node, ltree, opts), ltree ~= self.ltree
+end
 
 --- Get a child node.
----@param idx? integer|Range4|'closer_edge'|string index or field name of the child
+--- If you expected a node, but didn't get one, ensure its type is allowed
+---@param idx? integer|anyrange|'closer_edge' index of the child
 --- - `<0` for reverse indexing, or a range it should contain
 --- - `'closer_edge'` to choose from the end closer to the cursor (default)
---- - `'name'` to get the node stored under the field `name` of this node
+--- - `anyrange` for node that contains that range (useful to go closer to mouse cursor)
 ---@param opts? manipulator.TS.Opts|string #
 ---@return manipulator.TS? node from the given direction
 ---@return boolean? changed_lang true if {node} is from a different language tree
@@ -223,10 +238,9 @@ function TS:child(idx, opts)
 	opts = self:action_opts(opts, 'child')
 	local node, ltree = TU.get_identical_descendant(opts, self.node, self.ltree)
 
-	-- get the child based on the index
-	if type(idx) == 'string' and idx ~= 'closer_edge' then -- field index / map key
-		node = node:field(idx)[1]
-	elseif type(idx) == 'table' then -- region index - node must contain the region
+	-- region index - node must contain the region
+	if type(idx) == 'table' or (type(idx) == 'string' and idx ~= 'closer_edge') then
+		if not idx[4] then idx = Range.from(idx) end
 		node = node:child_with_descendant(node:named_descendant_for_range(idx[1], idx[2], idx[3], idx[4]))
 	else -- pick the node at the particular idx/position
 		if not idx or idx == 'closer_edge' then
@@ -269,6 +283,20 @@ function TS:prev_sibling(opts)
 	end
 
 	return self:new(node, self.ltree, opts)
+end
+
+--- Get the first descendant somewhere in the subtree matching the criteria.
+--- Uses just a preset of options for graph search (next)
+---@param opts? manipulator.TS.QueryOpts|string
+---@return manipulator.TS? node from within the subtree
+---@return boolean? changed_lang true if {node} is from a different language tree
+function TS:descendant(opts)
+	opts = TS:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
+
+	opts.allow_child = true
+	opts.max_ascend = -1
+	local node, ltree = TU.search_in_graph('next', opts, self.node, self.ltree)
+	return self:new(node, ltree, opts), ltree == self.ltree
 end
 
 --- Get the next node in tree order (child, sibling, parent sibling)
@@ -384,7 +412,7 @@ end
 ---@field on_partial? 'larger'|pos_expr|false
 
 ---@param opts? manipulator.TS.module.current.Opts|string persistent by default
----@return manipulator.TS?
+---@return manipulator.TS
 function M.current(opts)
 	opts = TS:action_opts(opts, 'current')
 
