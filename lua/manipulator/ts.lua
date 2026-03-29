@@ -194,8 +194,8 @@ function TS:parent(opts)
 	opts = self:action_opts(opts, 'parent')
 
 	if opts.query then
-		local node, ltree = TQ.get_ancestor({ self.node:range() }, self.ltree, opts, true, false)
-		return self:new(node, ltree, opts)
+		local nodes, ltree = TQ.get_ancestors({ self.node:range() }, self.ltree, opts, false)
+		return self:new(nodes[1], ltree, opts), ltree ~= self.ltree
 	end
 
 	local node, ltree = TU.get_identical_ancestor(opts, self.node, self.ltree, true)
@@ -295,7 +295,8 @@ function TS:descendant(opts)
 
 	opts.allow_child = true
 	opts.min_depth = 1
-	local node, ltree = TU.search_in_graph('next', opts, self.node, self.ltree)
+	opts.direction = 'forward'
+	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
 	return self:new(node, ltree, opts), ltree == self.ltree
 end
 
@@ -306,7 +307,8 @@ end
 function TS:next(opts)
 	opts = self:action_opts(opts, 'next')
 
-	local node, ltree = TU.search_in_graph('next', opts, self.node, self.ltree)
+	opts.direction = 'forward'
+	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
 	return self:new(node, ltree, opts), ltree == self.ltree
 end
 
@@ -317,7 +319,8 @@ end
 function TS:prev(opts)
 	opts = self:action_opts(opts, 'prev')
 
-	local node, ltree = TU.search_in_graph('prev', opts, self.node, self.ltree)
+	opts.direction = 'backward'
+	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
 	return self:new(node, ltree, opts), ltree == self.ltree
 end
 
@@ -396,8 +399,8 @@ function M.get(range, opts)
 	r[4] = r[4] + 1 -- NOTE: TSNode:range() is end exclusive
 	local ret
 	if opts.query then
-		local nodes, ltree = TQ.get_ancestor(r, ltree, opts, true, true)
-		ret = TS:new(nodes, ltree, opts)
+		local nodes, ltree = TQ.get_ancestors(r, ltree, opts, true)
+		ret = TS:new(nodes[1], ltree, opts)
 	else
 		if opts.langs then ltree = ltree:language_for_range(r) end
 		ret = TS:new(ltree:named_node_for_range(r), ltree, opts)

@@ -147,8 +147,9 @@ function M.get_child(opts, node, ltree, idx)
 end
 
 --- Traverse the graph left or right of the current node with the given restraints.
---- NOTE: when using `.query` only comparison options work, not restrictions (`max_...`)
+--- NOTE: when using `.query` depth can be only unrestricted or for descendants
 ---@class manipulator.TS.GraphOpts: manipulator.TS.QueryOpts
+---@field direction? 'backward'|'forward' which direction from the node to search in
 --- how many lower levels to scan for a result (not necessarily direct child)
 --- `false` for unlimited descend (false as in _disable the limiter_)
 ---@field max_depth? integer|false
@@ -162,10 +163,10 @@ end
 --- In 'prev' search can enforce no parent can be selected (end_() will always be after self:start())
 ---@field compare_end? boolean
 
--- TODO: turn into an iterator
----@type fun(direction:'prev'|'next',opts:manipulator.TS.GraphOpts, node:TSNode,
----ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
-function M.search_in_graph(direction, opts, node, ltree)
+--- Returns iterator for the nodes in said direction
+---@type fun(opts:manipulator.TS.GraphOpts, node:TSNode,
+---ltree:vim.treesitter.LanguageTree): (fun():(TSNode?,vim.treesitter.LanguageTree?))
+function M.search_in_graph(opts, node, ltree)
 	local types = opts.types ---@type manipulator.Enabler
 	local max_depth = opts.max_depth or vim.v.maxcol
 	local min_shared = -(opts.max_link_dst or vim.v.maxcol)
@@ -173,29 +174,40 @@ function M.search_in_graph(direction, opts, node, ltree)
 	local cmp_fn = opts.compare_end and function(n) return n:end_() end or function(n) return n:start() end
 
 	local o_range = { node:range() }
-	local depth = 0
-	local tmp, tmp_tree = nil, ltree
 	local ok_range
 	if min_depth > 0 then -- requires a child node -> must fit in the range of this node
 		ok_range = function(node) return Range.contains_not_eq(o_range, { node:range() }) end
-	end
-	local continue = function()
-		return node and not (types[node:type()] and ok_range(node) and not Range.__eq({ node:range() }, o_range))
-	end
-
-	if direction == 'prev' then
+	elseif opts.direction == 'backward' then
 		local base_point = math.min(
 			select(3, node:start()),
 			opts.start_point and Range.to_byte(opts.start_point, vim.v.maxcol) or vim.v.maxcol
 		)
-		ok_range = ok_range or function(node) return select(3, cmp_fn(node)) < base_point end
+		ok_range = function(node) return select(3, cmp_fn(node)) < base_point end
+	else
+		local base_point = math.max(
+			opts.allow_child and select(3, node:start()) or select(3, node:end_()),
+			-- TODO: technically there probably should be a -1 for cmp_end
+			opts.start_point and Range.to_byte(opts.start_point, -1) or -1
+		)
+		ok_range = function(node) return select(3, cmp_fn(node)) > base_point end
+	end
 
-		if opts.query then
-			node, ltree = TQ.get_all(ok_range, ltree, opts)
-			return TQ.sorted(node, TQ.comparators.right, true), ltree
+	if opts.query then
+		node, ltree = TQ.get_all(ok_range, ltree, opts)
+		node = TQ.sorted(node, opts.direction == 'backward' and TQ.comparators.right or TQ.comparators.left)
+
+		local i = 0
+		return function()
+			i = i + 1
+			return node[i], ltree
 		end
+	end
 
-		while continue() do
+	local node_advance
+	local depth = 0
+	local tmp, tmp_tree = nil, ltree
+	if opts.direction == 'backward' then
+		node_advance = function()
 			-- must begin with sibling to prevent looping parent-child in repeated uses
 			tmp = node:prev_named_sibling()
 
@@ -216,20 +228,8 @@ function M.search_in_graph(direction, opts, node, ltree)
 				node = nil
 			end
 		end
-	else -- direction == 'next'
-		local base_point = math.max(
-			opts.allow_child and select(3, node:start()) or select(3, node:end_()),
-			-- TODO: technically there probably should be a -1 for cmp_end
-			opts.start_point and Range.to_byte(opts.start_point, -1) or -1
-		)
-		ok_range = ok_range or function(node) return select(3, cmp_fn(node)) > base_point end
-
-		if opts.query then
-			node, ltree = TQ.get_all(ok_range, ltree, opts)
-			return TQ.sorted(node, TQ.comparators.left, true), ltree
-		end
-
-		while continue() do
+	else -- direction == 'forward'
+		node_advance = function()
 			if depth < max_depth then
 				tmp, tmp_tree = M.get_child(opts, node, ltree, 0)
 			else
@@ -253,8 +253,20 @@ function M.search_in_graph(direction, opts, node, ltree)
 		end
 	end
 
-	if depth < min_depth then return nil end
-	return node, ltree
+	return function()
+		node_advance()
+		while
+			node
+			and not (
+				types[node:type()] --
+				and ok_range(node)
+				and not Range.__eq({ node:range() }, o_range)
+			)
+		do
+			node_advance()
+		end
+		if depth >= min_depth then return node, ltree end
+	end
 end
 
 return M

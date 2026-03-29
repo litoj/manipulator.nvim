@@ -118,36 +118,21 @@ M.comparators = {
 
 ---@param nodes TSNode[]
 ---@param cmp fun(a:Range4, b:Range4):boolean should we swap b and a
----@param first boolean should we get just the first node
 ---@param no_cmp_wrap? boolean should the comparator be used as is (provide full node acces, not just range)
----@return TSNode[]|TSNode
-function M.sorted(nodes, cmp, first, no_cmp_wrap)
+---@return TSNode[]
+function M.sorted(nodes, cmp, no_cmp_wrap)
 	local cmp = no_cmp_wrap and cmp or function(a, b) return cmp({ a:range() }, { b:range() }) end
-	if not first then
-		table.sort(nodes, cmp)
-		return nodes
-	end
-
-	local min = nodes[1]
-	local swapped = 0
-
-	for _, item in ipairs(nodes) do
-		if cmp(item, min) then
-			swapped = swapped + 1
-			min = item
-		end
-	end
-
-	return min
+	table.sort(nodes, cmp)
+	return nodes
 end
 
 ---@see manipulator.ts_query.get_all
----@type fun(br:Range4,t:vim.treesitter.LanguageTree,o:manipulator.TS.QueryOpts,f:boolean,s:boolean):(TSNode|TSNode[],vim.treesitter.LanguageTree)
-function M.get_ancestor(base_range, ltree, opts, get_first, allow_self)
+---@type fun(br:Range4,t:vim.treesitter.LanguageTree,o:manipulator.TS.QueryOpts,s:boolean):(TSNode[],vim.treesitter.LanguageTree)
+function M.get_ancestors(base_range, ltree, opts, allow_self)
 	local containedness = allow_self and 0 or 1
 	local filter = function(node) return Range.cmp_containment({ node:range() }, base_range) >= containedness end
 	local nodes, ltree = M.get_all(filter, ltree, opts)
-	return M.sorted(nodes, M.comparators.bottom, get_first), ltree
+	return M.sorted(nodes, M.comparators.bottom), ltree
 end
 
 return M
