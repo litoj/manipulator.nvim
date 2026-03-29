@@ -294,7 +294,7 @@ function TS:descendant(opts)
 	opts = TS:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
 
 	opts.allow_child = true
-	opts.max_ascend = -1
+	opts.min_depth = 1
 	local node, ltree = TU.search_in_graph('next', opts, self.node, self.ltree)
 	return self:new(node, ltree, opts), ltree == self.ltree
 end

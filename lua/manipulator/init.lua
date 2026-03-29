@@ -111,8 +111,8 @@ M.default_config = {
 			path = { -- configured for selecting individual fields in a path to an attribute (A.b.c.d=2)
 				in_graph = {
 					max_link_dst = 4,
-					max_ascend = 3,
-					max_descend = 1,
+					min_depth = -3,
+					max_depth = 1,
 					langs = { inherit = true, luadoc = false },
 				},
 				next = { allow_child = false },

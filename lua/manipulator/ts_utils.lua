@@ -151,8 +151,10 @@ end
 ---@class manipulator.TS.GraphOpts: manipulator.TS.QueryOpts
 --- how many lower levels to scan for a result (not necessarily direct child)
 --- `false` for unlimited descend (false as in _disable the limiter_)
----@field max_descend? integer|false
----@field max_ascend? integer|false the furthest parent to consider returning
+---@field max_depth? integer|false
+--- (usually) negative value representing the furthest parent to consider returning
+--- Use `1` to require a descendant node.
+---@field min_depth? integer|false
 ---@field max_link_dst? integer|false how far from the original can the common ancestor be (<= `max_ascend`)
 ---@field allow_child? boolean if children of the current node can be returned (NOTE: forced `false` for prev)
 ---@field start_point? pos_expr|Range2 0-indexed, from where to start looking for nodes
@@ -160,19 +162,23 @@ end
 --- In 'prev' search can enforce no parent can be selected (end_() will always be after self:start())
 ---@field compare_end? boolean
 
+-- TODO: turn into an iterator
 ---@type fun(direction:'prev'|'next',opts:manipulator.TS.GraphOpts, node:TSNode,
 ---ltree:vim.treesitter.LanguageTree): (TSNode?,vim.treesitter.LanguageTree?)
 function M.search_in_graph(direction, opts, node, ltree)
 	local types = opts.types ---@type manipulator.Enabler
-	local max_depth = opts.max_descend or vim.v.maxcol
+	local max_depth = opts.max_depth or vim.v.maxcol
 	local min_shared = -(opts.max_link_dst or vim.v.maxcol)
-	local min_depth = -(opts.max_ascend or vim.v.maxcol)
+	local min_depth = opts.min_depth or -vim.v.maxcol
 	local cmp_fn = opts.compare_end and function(n) return n:end_() end or function(n) return n:start() end
 
 	local o_range = { node:range() }
 	local depth = 0
 	local tmp, tmp_tree = nil, ltree
 	local ok_range
+	if min_depth > 0 then -- requires a child node -> must fit in the range of this node
+		ok_range = function(node) return Range.contains_not_eq(o_range, { node:range() }) end
+	end
 	local continue = function()
 		return node and not (types[node:type()] and ok_range(node) and not Range.__eq({ node:range() }, o_range))
 	end
@@ -182,7 +188,7 @@ function M.search_in_graph(direction, opts, node, ltree)
 			select(3, node:start()),
 			opts.start_point and Range.to_byte(opts.start_point, vim.v.maxcol) or vim.v.maxcol
 		)
-		ok_range = function(node) return select(3, cmp_fn(node)) < base_point end
+		ok_range = ok_range or function(node) return select(3, cmp_fn(node)) < base_point end
 
 		if opts.query then
 			node, ltree = TQ.get_all(ok_range, ltree, opts)
@@ -216,7 +222,7 @@ function M.search_in_graph(direction, opts, node, ltree)
 			-- TODO: technically there probably should be a -1 for cmp_end
 			opts.start_point and Range.to_byte(opts.start_point, -1) or -1
 		)
-		ok_range = function(node) return select(3, cmp_fn(node)) > base_point end
+		ok_range = ok_range or function(node) return select(3, cmp_fn(node)) > base_point end
 
 		if opts.query then
 			node, ltree = TQ.get_all(ok_range, ltree, opts)
