@@ -94,8 +94,14 @@ M.default_config = {
 
 		field = { types = { ['*'] = true } }, -- by default disable type filtering on field access
 		sibling = { types = { inherit = true, comment = false } },
-		next = { allow_child = true, start_point = '.' },
-		prev = {},
+		descendant = {
+			direction = 'forward',
+			min_depth = 1,
+			after = 'start',
+			before = 'end',
+		},
+		next = { direction = 'forward', after = 'start' },
+		prev = { direction = 'backward', before = 'end' },
 
 		use_lang_presets = 'ltree_or_buf',
 		ft_to_lang = {
@@ -115,8 +121,8 @@ M.default_config = {
 					max_depth = 1,
 					langs = { inherit = true, luadoc = false },
 				},
-				next = { allow_child = false },
-				prev = { compare_end = true },
+				next = { after = 'end' },
+				prev = { before = 'start' },
 			},
 
 			with_docs = { -- select the node under cursor and all documentation associated with it

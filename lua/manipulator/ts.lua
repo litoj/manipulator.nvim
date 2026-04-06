@@ -189,24 +189,22 @@ end
 --- Get a parent node.
 ---@param opts? manipulator.TS.QueryOpts|string
 ---@return manipulator.TS? node from the given direction
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:parent(opts)
 	opts = self:action_opts(opts, 'parent')
 
 	if opts.query then
 		local nodes, ltree = TQ.get_ancestors({ self.node:range() }, self.ltree, opts, false)
-		return self:new(nodes[1], ltree, opts), ltree ~= self.ltree
+		return self:new(nodes[1], ltree, opts)
 	end
 
 	local node, ltree = TU.get_identical_ancestor(opts, self.node, self.ltree, true)
-	return self:new(node, ltree, opts), ltree ~= self.ltree
+	return self:new(node, ltree, opts)
 end
 
 --- Get a node by the field on this node.
 ---@param name string name of the field to get
 ---@param opts? manipulator.TS.Opts|string #
 ---@return manipulator.TS? node from the given direction
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:field(name, opts)
 	opts = self:action_opts(opts, 'field')
 	local node, ltree = TU.get_identical_descendant(opts, self.node, self.ltree)
@@ -216,7 +214,7 @@ function TS:field(name, opts)
 		node, ltree = TU.get_identical_valid_descendant(opts, node, ltree)
 	end
 
-	return self:new(node, ltree, opts), ltree ~= self.ltree
+	return self:new(node, ltree, opts)
 end
 
 --- Get a child node.
@@ -227,7 +225,6 @@ end
 --- - `anyrange` for node that contains that range (useful to go closer to mouse cursor)
 ---@param opts? manipulator.TS.Opts|string #
 ---@return manipulator.TS? node from the given direction
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:child(idx, opts)
 	if type(idx) == 'table' and not idx[1] then
 		---@diagnostic disable-next-line: assign-type-mismatch
@@ -254,7 +251,7 @@ function TS:child(idx, opts)
 		node, ltree = TU.get_identical_valid_descendant(opts, node, ltree)
 	end
 
-	return self:new(node, ltree, opts), ltree ~= self.ltree
+	return self:new(node, ltree, opts)
 end
 
 --- Get a node in said direction. only
@@ -285,43 +282,48 @@ function TS:prev_sibling(opts)
 	return self:new(node, self.ltree, opts)
 end
 
---- Get the first descendant somewhere in the subtree matching the criteria.
+--- Get an iterator over all nodes matching the graph search options
+---@param opts? manipulator.TS.GraphOpts|string opts with forced `nil_wrap=false`
+---@return fun():(manipulator.TS?)
+function TS:in_graph(opts)
+	opts = self:action_opts(opts, 'in_graph')
+	local it = TU.search_in_graph(opts, self.node, self.ltree)
+	return function()
+		local node, ltree = it()
+		return node and self:new(node, ltree, opts)
+	end
+end
+
+---@param opts? manipulator.TS.GraphOpts|string
+---@return manipulator.TS? node from within the subtree
+function TS:first_in_graph(opts)
+	opts = self:action_opts(opts, 'in_graph')
+	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
+	return self:new(node, ltree, opts)
+end
+
 --- Uses just a preset of options for graph search (next)
 ---@param opts? manipulator.TS.QueryOpts|string
 ---@return manipulator.TS? node from within the subtree
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:descendant(opts)
-	opts = TS:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
-
-	opts.allow_child = true
-	opts.min_depth = 1
-	opts.direction = 'forward'
-	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
-	return self:new(node, ltree, opts), ltree == self.ltree
+	opts = self:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
+	return self:first_in_graph(opts)
 end
 
 --- Get the next node in tree order (child, sibling, parent sibling)
 ---@param opts? manipulator.TS.GraphOpts|string
 ---@return manipulator.TS? node from the given direction
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:next(opts)
 	opts = self:action_opts(opts, 'next')
-
-	opts.direction = 'forward'
-	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
-	return self:new(node, ltree, opts), ltree == self.ltree
+	return self:first_in_graph(opts)
 end
 
 --- Get the prev node in tree order (child, sibling, parent sibling)
 ---@param opts? manipulator.TS.GraphOpts|string
 ---@return manipulator.TS? node from the given direction
----@return boolean? changed_lang true if {node} is from a different language tree
 function TS:prev(opts)
 	opts = self:action_opts(opts, 'prev')
-
-	opts.direction = 'backward'
-	local node, ltree = TU.search_in_graph(opts, self.node, self.ltree)()
-	return self:new(node, ltree, opts), ltree == self.ltree
+	return self:first_in_graph(opts)
 end
 
 do -- ### Wrapper for nil TSNode matches

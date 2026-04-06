@@ -267,14 +267,10 @@ end
 function Region:jump(opts)
 	opts = self:action_opts(opts, 'jump')
 
-	local r = Region.rangemod(
-		self,
-		opts,
-		opts.shift_mode == nil and { shift_mode = 'insert', rangemod = RM.end_shift } or nil
-	)
+	local r = Region.rangemod(self, opts)
 
-	if opts.start_insert and vim.fn.mode() ~= 'i' then
-		vim.cmd.startinsert()
+	if opts.start_insert or vim.fn.mode() == 'i' then
+		if vim.fn.mode() ~= 'i' then vim.cmd.startinsert() end
 		if opts.end_ then r[4] = r[4] + 1 end
 	end
 

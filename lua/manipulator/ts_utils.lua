@@ -157,11 +157,12 @@ end
 --- Use `1` to require a descendant node.
 ---@field min_depth? integer|false
 ---@field max_link_dst? integer|false how far from the original can the common ancestor be (<= `max_ascend`)
----@field allow_child? boolean if children of the current node can be returned (NOTE: forced `false` for prev)
----@field start_point? pos_expr|Range2 0-indexed, from where to start looking for nodes
---- Should we look in direction by end of node or start.
---- In 'prev' search can enforce no parent can be selected (end_() will always be after self:start())
----@field compare_end? boolean
+--- the earliest allowed position of the start of the node (default: no limit)
+--- - `'start'` for start of node, `'end'` for end of node
+---@field after? 'start'|'end'|pos_expr|Range2
+--- the furthest allowed position of the end of the node (default: no limit)
+--- - `'start'` for start of node, `'end'` for end of node
+---@field before? 'start'|'end'|pos_expr|Range2
 
 --- Returns iterator for the nodes in said direction
 ---@type fun(opts:manipulator.TS.GraphOpts, node:TSNode,
@@ -171,25 +172,24 @@ function M.search_in_graph(opts, node, ltree)
 	local max_depth = opts.max_depth or vim.v.maxcol
 	local min_shared = -(opts.max_link_dst or vim.v.maxcol)
 	local min_depth = opts.min_depth or -vim.v.maxcol
-	local cmp_fn = opts.compare_end and function(n) return n:end_() end or function(n) return n:start() end
 
-	local o_range = { node:range() }
-	local ok_range
-	if min_depth > 0 then -- requires a child node -> must fit in the range of this node
-		ok_range = function(node) return Range.contains_not_eq(o_range, { node:range() }) end
-	elseif opts.direction == 'backward' then
-		local base_point = math.min(
-			select(3, node:start()),
-			opts.start_point and Range.to_byte(opts.start_point, vim.v.maxcol) or vim.v.maxcol
-		)
-		ok_range = function(node) return select(3, cmp_fn(node)) < base_point end
+	local function point_to_byte(opt, default)
+		if opt == 'end' then return select(3, node:end_()) end
+		if opt == 'start' then return select(3, node:start()) end
+		return opt and Range.to_byte(opt, default) or default
+	end
+	local start, end_ = point_to_byte(opts.after, -1), point_to_byte(opts.before, vim.v.maxcol)
+	local ns, ne = select(3, node:start()), select(3, node:end_())
+	if opts.direction == 'backward' then
+		end_ = math.min(end_, ne)
 	else
-		local base_point = math.max(
-			opts.allow_child and select(3, node:start()) or select(3, node:end_()),
-			-- TODO: technically there probably should be a -1 for cmp_end
-			opts.start_point and Range.to_byte(opts.start_point, -1) or -1
-		)
-		ok_range = function(node) return select(3, cmp_fn(node)) > base_point end
+		start = math.max(start, ns)
+	end
+
+	---@param node TSNode
+	local function ok_range(node)
+		local s, e = select(3, node:start()), select(3, node:end_())
+		return start <= s and e <= end_ and (s ~= ns or e ~= ne)
 	end
 
 	if opts.query then
@@ -255,14 +255,7 @@ function M.search_in_graph(opts, node, ltree)
 
 	return function()
 		node_advance()
-		while
-			node
-			and not (
-				types[node:type()] --
-				and ok_range(node)
-				and not Range.__eq({ node:range() }, o_range)
-			)
-		do
+		while node and not (types[node:type()] and ok_range(node)) do
 			node_advance()
 		end
 		if depth >= min_depth then return node, ltree end
