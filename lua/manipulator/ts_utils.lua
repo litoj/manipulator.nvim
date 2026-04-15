@@ -163,6 +163,7 @@ end
 ---| 'parent' # include ancestors (not possible with direction='forward', query=nil)
 ---| 'both' # include ancestors and descendants
 ---| false # do not allow parent nor children
+---@field new_edge? 'start'|'end' which end of the node should differ in position
 
 --- Returns iterator for the nodes in said direction.
 ---@param opts manipulator.TS.GraphOpts
@@ -198,9 +199,12 @@ function M.search_in_graph(opts, node, ltree)
 		cmp = fwd and function(s) return s > ne end or function(_, e) return e < ns end
 	end
 
+	local edge_cmp = opts.new_edge == nil and function(s, e) return s ~= ns or e ~= ne end
+		or (opts.new_edge == 'end' and function(_, e) return e ~= ne end)
+		or function(s) return s ~= ns end
 	local function ok_range(node)
 		local s, e = select(3, node:start()), select(3, node:end_())
-		return cmp(s, e) and (s ~= ns or e ~= ne) -- in range but != onode
+		return cmp(s, e) and edge_cmp(s, e) -- in range but != onode
 	end
 
 	if opts.query then
