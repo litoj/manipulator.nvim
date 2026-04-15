@@ -157,44 +157,55 @@ end
 --- Use `1` to require a descendant node.
 ---@field min_depth? integer|false
 ---@field max_link_dst? integer|false how far from the original can the common ancestor be (<= `max_ascend`)
---- the earliest allowed position of the start of the node (default: no limit)
---- - `'start'` for start of node, `'end'` for end of node
----@field after? 'start'|'end'|pos_expr|Range2
---- the furthest allowed position of the end of the node (default: no limit)
---- - `'start'` for start of node, `'end'` for end of node
----@field before? 'start'|'end'|pos_expr|Range2
+---@field vertical?
+---| 'only' # traverse only ancestors/descendants (depth opts determine which)
+---| 'child' # include descendants
+---| 'parent' # include ancestors (not possible with direction='forward', query=nil)
+---| 'both' # include ancestors and descendants
+---| false # do not allow parent nor children
 
---- Returns iterator for the nodes in said direction
----@type fun(opts:manipulator.TS.GraphOpts, node:TSNode,
----ltree:vim.treesitter.LanguageTree): (fun():(TSNode?,vim.treesitter.LanguageTree?))
+--- Returns iterator for the nodes in said direction.
+---@param opts manipulator.TS.GraphOpts
+---@param node TSNode
+---@param ltree vim.treesitter.LanguageTree
+---@return fun():(TSNode?,vim.treesitter.LanguageTree?)
 function M.search_in_graph(opts, node, ltree)
 	local types = opts.types ---@type manipulator.Enabler
 	local max_depth = opts.max_depth or vim.v.maxcol
 	local min_shared = -(opts.max_link_dst or vim.v.maxcol)
 	local min_depth = opts.min_depth or -vim.v.maxcol
 
-	local function point_to_byte(opt, default)
-		if opt == 'end' then return select(3, node:end_()) end
-		if opt == 'start' then return select(3, node:start()) end
-		return opt and Range.to_byte(opt, default) or default
-	end
-	local start, end_ = point_to_byte(opts.after, -1), point_to_byte(opts.before, vim.v.maxcol)
+	local fwd = opts.direction ~= 'backward'
+
 	local ns, ne = select(3, node:start()), select(3, node:end_())
-	if opts.direction == 'backward' then
-		end_ = math.min(end_, ne)
+	---@type  fun(s:integer,e:integer):boolean?
+	local cmp
+	if opts.vertical == 'only' then
+		if min_depth >= 0 then
+			cmp = function(s, e) return s >= ns and e <= ne end
+		elseif max_depth <= 0 then
+			cmp = function(s, e) return s <= ns and e >= ne end
+		else
+			cmp = function(s, e) return s >= ns and e <= ne or (s <= ns and e >= ne) end
+		end
+	elseif opts.vertical == 'child' then
+		cmp = fwd and function(s) return s >= ns end or function(_, e) return e <= ne end
+	elseif opts.vertical == 'parent' then
+		cmp = fwd and function(_, e) return e >= ne end or function(s) return s <= ns end
+	elseif opts.vertical == 'both' then
+		cmp = fwd and function(_, e) return e >= ns end or function(s) return s <= ne end
 	else
-		start = math.max(start, ns)
+		cmp = fwd and function(s) return s > ne end or function(_, e) return e < ns end
 	end
 
-	---@param node TSNode
 	local function ok_range(node)
 		local s, e = select(3, node:start()), select(3, node:end_())
-		return start <= s and e <= end_ and (s ~= ns or e ~= ne)
+		return cmp(s, e) and (s ~= ns or e ~= ne) -- in range but != onode
 	end
 
 	if opts.query then
 		node, ltree = TQ.get_all(ok_range, ltree, opts)
-		node = TQ.sorted(node, opts.direction == 'backward' and TQ.comparators.right or TQ.comparators.left)
+		node = TQ.sorted(node, fwd and TQ.comparators.left or TQ.comparators.right)
 
 		local i = 0
 		return function()
@@ -205,8 +216,13 @@ function M.search_in_graph(opts, node, ltree)
 
 	local node_advance
 	local depth = 0
-	local tmp, tmp_tree = nil, ltree
-	if opts.direction == 'backward' then
+	local tmp, tmp_tree
+	if not fwd then
+		if cmp(ns + 1, ne - 1) and max_depth > 0 then -- can include children
+			local _n = node
+			node = { prev_named_sibling = function() return _n end }
+		end
+
 		node_advance = function()
 			-- must begin with sibling to prevent looping parent-child in repeated uses
 			tmp = node:prev_named_sibling()
@@ -225,6 +241,7 @@ function M.search_in_graph(opts, node, ltree)
 				depth = depth - 1
 				node, ltree = M.get_parent(opts, node, ltree)
 			else
+				---@diagnostic disable-next-line: cast-local-type
 				node = nil
 			end
 		end

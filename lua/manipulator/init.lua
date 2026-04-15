@@ -97,11 +97,10 @@ M.default_config = {
 		descendant = {
 			direction = 'forward',
 			min_depth = 1,
-			after = 'start',
-			before = 'end',
+			vertical = 'only',
 		},
-		next = { direction = 'forward', after = 'start' },
-		prev = { direction = 'backward', before = 'end' },
+		next = { direction = 'forward', vertical = 'child' },
+		prev = { direction = 'backward', vertical = 'parent' },
 
 		use_lang_presets = 'ltree_or_buf',
 		ft_to_lang = {
@@ -121,8 +120,8 @@ M.default_config = {
 					max_depth = 1,
 					langs = { inherit = true, luadoc = false },
 				},
-				next = { after = 'end' },
-				prev = { before = 'start' },
+				prev = { vertical = false }, -- to override the default setting for both individually
+				next = { vertical = false },
 			},
 
 			with_docs = { -- select the node under cursor and all documentation associated with it

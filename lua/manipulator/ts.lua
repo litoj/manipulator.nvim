@@ -27,6 +27,7 @@ TS.__index = TS
 ---@field next_sibling? manipulator.TS.Opts
 ---@field prev_sibling? manipulator.TS.Opts
 ---@field in_graph? manipulator.TS.GraphOpts
+---@field descendant? manipulator.TS.GraphOpts
 ---@field next? manipulator.TS.GraphOpts
 ---@field prev? manipulator.TS.GraphOpts
 ---@field presets? {[string]:manipulator.TS.Config}

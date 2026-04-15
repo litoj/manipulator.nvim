@@ -121,8 +121,7 @@ M.comparators = {
 ---@param no_cmp_wrap? boolean should the comparator be used as is (provide full node acces, not just range)
 ---@return TSNode[]
 function M.sorted(nodes, cmp, no_cmp_wrap)
-	local cmp = no_cmp_wrap and cmp or function(a, b) return cmp({ a:range() }, { b:range() }) end
-	table.sort(nodes, cmp)
+	table.sort(nodes, no_cmp_wrap and cmp or function(a, b) return cmp({ a:range() }, { b:range() }) end)
 	return nodes
 end
 
