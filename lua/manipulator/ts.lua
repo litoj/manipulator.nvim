@@ -308,6 +308,10 @@ end
 ---@return manipulator.TS? node from within the subtree
 function TS:descendant(opts)
 	opts = self:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
+
+	opts.min_depth = opts.min_depth or 1
+	opts.vertical = opts.vertical or 'only'
+
 	return self:first_in_graph(opts)
 end
 
@@ -316,6 +320,9 @@ end
 ---@return manipulator.TS? node from the given direction
 function TS:next(opts)
 	opts = self:action_opts(opts, 'next')
+
+	opts.direction = 'forward'
+
 	return self:first_in_graph(opts)
 end
 
@@ -324,6 +331,9 @@ end
 ---@return manipulator.TS? node from the given direction
 function TS:prev(opts)
 	opts = self:action_opts(opts, 'prev')
+
+	opts.direction = 'backward'
+
 	return self:first_in_graph(opts)
 end
 

@@ -94,13 +94,8 @@ M.default_config = {
 
 		field = { types = { ['*'] = true } }, -- by default disable type filtering on field access
 		sibling = { types = { inherit = true, comment = false } },
-		descendant = {
-			direction = 'forward',
-			min_depth = 1,
-			vertical = 'only',
-		},
-		next = { direction = 'forward', vertical = 'child' },
-		prev = { direction = 'backward', vertical = 'parent' },
+		next = { vertical = 'child' },
+		prev = { vertical = 'parent' },
 
 		use_lang_presets = 'ltree_or_buf',
 		ft_to_lang = {
