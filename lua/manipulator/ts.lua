@@ -310,7 +310,7 @@ function TS:descendant(opts)
 	opts = self:action_opts(opts, 'descendant') ---@cast opts manipulator.TS.GraphOpts
 
 	opts.min_depth = opts.min_depth or 1
-	opts.vertical = opts.vertical or 'only'
+	opts.vertical = 'only'
 
 	return self:first_in_graph(opts)
 end
@@ -433,7 +433,7 @@ function M.current(opts)
 	opts = TS:action_opts(opts, 'current')
 
 	local reg, visual = Region.current(opts)
-	local ts = reg == Region.Nil and TS.Nil or M.get(reg, opts) -- get the primary chosen node
+	local ts = reg and (reg == Region.Nil and TS.Nil or M.get(reg, opts)) -- get the primary chosen node
 
 	-- if selection is smaller than the chosen node decide what to do
 	if (ts and ts.node and visual and opts.on_partial ~= 'larger') and ts.range ~= reg.range then

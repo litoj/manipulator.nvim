@@ -572,16 +572,20 @@ function M.current(opts)
 			r = Range.from(expr)
 			if vim.fn.mode() == 'i' then r[4] = r[4] - 1 end -- correct to 0-width
 		end
+
+		return expr
 	end
 
-	findRange(opts.src)
-	local expr = r and opts.src or opts.fallback
+	local expr = findRange(opts.src)
 	if not r then
-		if not expr then return Region.Nil end
+		expr = opts.fallback
 		if type(expr) == 'table' then
 			r, mode = Range.get_or_make(expr), 'fallback_range'
-		else
+		elseif expr then
 			findRange(expr)
+		else
+			---@diagnostic disable-next-line: undefined-field
+			return opts.nil_wrap and Region.Nil or nil
 		end
 	end
 
