@@ -37,10 +37,9 @@ TS.__index = TS
 --- - `'ltree'`: use only `vim.treesitter.LanguageTree:lang()` to choose the filetype
 ---   - each injected language can be treated differently
 ---   - getting the node (`.current()`, `.get_all()`, `.get()`) will be done with default config
---- - `'buf'`: use current buffer filetype and map it to the its lang with `.ft_to_lang`
+--- - `'buf'`: use current buffer filetype and map it to the treesitter parser
 --- - `'ltree_or_buf`: best of both worlds - prefer ltree, use buf when ltree is not known yet
 ---@field use_lang_presets? false|'buf'|'ltree'|'ltree_or_buf'
----@field ft_to_lang? table<string,string> map filetype to TS language
 ---@field get? manipulator.TS.QueryOpts
 ---@field get_all? manipulator.TS.QueryOpts
 ---@field current? manipulator.TS.module.current.Opts
@@ -94,7 +93,7 @@ local function get_lang_preset(buf, ltree)
 		if bp ~= 'buf' and ltree then bp = M.config.presets[ltree:lang()] or bp end
 		if type(bp) == 'string' and bp ~= 'ltree' then
 			local ft = vim.bo[buf or 0].ft
-			bp = M.config.presets[M.config.ft_to_lang[ft] or ft]
+			bp = M.config.presets[vim.treesitter.language.get_lang(ft) or ft]
 		end
 
 		if type(bp) == 'table' then

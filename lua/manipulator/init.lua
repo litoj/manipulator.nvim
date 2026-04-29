@@ -8,6 +8,8 @@ local RM = require 'manipulator.range_mods'
 ---@field call_path manipulator.CallPath.module
 ---@field region manipulator.Region.module
 ---@field ts manipulator.TS.module
+---@field private default_config manipulator.Config
+---@field private config manipulator.Config
 local M = {
 	-- as class names, because there is no static wrapper
 	Range = require 'manipulator.range',
@@ -98,11 +100,6 @@ M.default_config = {
 		prev = { vertical = 'parent' },
 
 		use_lang_presets = 'ltree_or_buf',
-		ft_to_lang = {
-			tex = 'latex',
-			sh = 'bash',
-			cs = 'c_sharp',
-		},
 
 		current = { linewise = false, on_partial = 'larger' },
 
@@ -143,13 +140,6 @@ M.default_config = {
 					'block_continuation',
 					'delimiter$',
 					'marker$',
-				},
-			},
-			latex = {
-				types = {
-					inherit = true,
-					'word',
-					'text',
 				},
 			},
 			lua = {
@@ -196,5 +186,22 @@ function M.setup(config)
 
 	return M
 end
+
+---@type manipulator.Config updates the real config at the changed indexes
+M.dyn_config = setmetatable({ state = {} }, {
+	__index = function(self, k)
+		self.active[k] = {}
+		self.active = self.active[k]
+		return self
+	end,
+	__newindex = function(self, k, v)
+		self.active[k] = v
+		M.setup(self.state)
+		self.state = {}
+		self.active = self.state
+	end,
+})
+---@diagnostic disable-next-line: undefined-field
+rawset(M.dyn_config, 'active', M.dyn_config.state)
 
 return M
