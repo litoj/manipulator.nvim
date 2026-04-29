@@ -381,16 +381,20 @@ do -- ### config inheritance/extension helpers
 
 	--- For user preset to inherit from the previous version he should use that name for `inherit`
 	---@generic O
-	---@param presets table<string,O>
 	---@param super O
+	---@param default O
 	---@param config O?
 	---@return O new
-	function M.module_setup(presets, super, config, action_map)
+	function M.module_setup(super, default, config, action_map)
 		if not config then return super end
+
+		local presets = super.presets
+		presets.active = super
+		presets.default = default
 		local new_presets = config.presets or {}
 		new_presets.active = config
 		if config.inherit ~= false then -- only the main config can inherit from any preset
-			presets['active'] = config.inherit == 'default' and super or presets[config.inherit or 'active']
+			presets.active = presets[config.inherit or 'active']
 			config.inherit = 'active'
 		end
 
@@ -427,9 +431,12 @@ do -- ### config inheritance/extension helpers
 		end
 
 		for n, p in pairs(presets) do
-			if not new_presets[n] then new_presets[n] = p end
-			p.presets = nil -- to avoid recursive references (GC)
+			if not new_presets[n] then new_presets[n] = p end -- copy over unchanged presets
+			p.presets = nil -- avoid recursive references (GC)
 		end
+		presets.active = nil
+		presets.default = nil
+		super.presets = presets
 
 		config.presets = new_presets
 		return config

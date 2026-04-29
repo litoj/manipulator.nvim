@@ -156,16 +156,13 @@ M.default_config = {
 	},
 }
 
-M.setup_order = { 'batch', 'call_path', 'region', 'ts' }
-for _, name in ipairs(M.setup_order) do
+local setup_order = { 'batch', 'call_path', 'region', 'ts' }
+for _, name in ipairs(setup_order) do
 	local m = require('manipulator.' .. name)
 	M[name] = m
 	m.default_config = M.default_config[name]
 	m.config = m.default_config
-	-- create self-reference
 	if not m.config.presets then m.config.presets = {} end
-	m.config.presets.default = m.config
-	m.config.presets.active = m.config
 end
 
 ---@param config? manipulator.Config
@@ -173,14 +170,9 @@ end
 function M.setup(config)
 	config = config or {}
 
-	for _, name in ipairs(M.setup_order) do
+	for _, name in ipairs(setup_order) do
 		local m = require('manipulator.' .. name)
-		m.config = U.module_setup( --
-			m.config.presets,
-			m.config.presets.default,
-			config[name],
-			m.class.action_map or {}
-		)
+		m.config = U.module_setup(m.config, M.default_config[name], config[name], m.class.action_map or {})
 		if rawget(m, '_post_setup') then m._post_setup() end
 	end
 
