@@ -219,11 +219,11 @@ do -- ### Set operations
 		a = Range.get_or_make(a)
 		b = Range.get_or_make(b)
 
-		if a:start() >= b then
-			if a:end_() >= b then return a end
+		if a:start() <= b then
+			if a:end_(true) >= b:end_(true) then return a end
 			return Range.new({ a[1], a[2], b[3], b[4] }, a.buf)
 		else
-			if b:end_() >= a then return b end
+			if b:end_(true) >= a:end_(true) then return b end
 			return Range.new({ b[1], b[2], a[3], a[4] }, a.buf)
 		end
 	end

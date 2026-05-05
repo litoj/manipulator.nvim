@@ -260,4 +260,9 @@ function M.autopar(self, opts)
 	return self.range
 end
 
+---@param self manipulator.TS
+function M.extend_visual(self)
+	return Range.union(self, Range.from('v', '.'))
+end
+
 return M
